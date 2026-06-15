@@ -1,0 +1,78 @@
+server:
+  port: ${SERVER_PORT:8083}
+
+spring:
+  application:
+    name: im-service
+  datasource:
+    url: jdbc:postgresql://${POSTGRES_HOST}:${POSTGRES_PORT}/${POSTGRES_DATABASE:dating_dev_yanshuqi}?currentSchema=im_center&stringtype=unspecified
+    username: ${POSTGRES_USERNAME}
+    password: ${POSTGRES_PASSWORD}
+    driver-class-name: org.postgresql.Driver
+    hikari:
+      maximum-pool-size: 8
+      minimum-idle: 2
+      connection-init-sql: SET TIME ZONE 'UTC'
+  data:
+    redis:
+      host: ${REDIS_HOST}
+      port: ${REDIS_PORT}
+      password: ${REDIS_PASSWORD}
+      database: ${REDIS_DATABASE:1}
+      timeout: 3s
+  flyway:
+    enabled: true
+    schemas: im_center
+    table: flyway_history_im
+    baseline-on-migrate: true
+
+app:
+  cache:
+    key-prefix: ${REDIS_KEY_PREFIX:yanshuqi}
+  service:
+    name: im-service
+    redis-key-suffix: im
+  grpc:
+    port: 9093
+  infra:
+    redis-test-key: ${REDIS_KEY_PREFIX:yanshuqi}:im:infra:ping
+    redis-test-ttl-seconds: 60
+
+minio:
+  endpoint: ${MINIO_ENDPOINT}
+  access-key: ${MINIO_ACCESS_KEY}
+  secret-key: ${MINIO_SECRET_KEY}
+  bucket: ${MINIO_BUCKET:dating-yanshuqi}
+  region: ${MINIO_REGION:us-east-1}
+  path-style-access: ${MINIO_PATH_STYLE_ACCESS:true}
+
+rocketmq:
+  name-server: ${ROCKETMQ_NAME_SERVER:}
+  access-key: ${ROCKETMQ_ACCESS_KEY:}
+  secret-key: ${ROCKETMQ_SECRET_KEY:}
+  topic-prefix: ${ROCKETMQ_TOPIC_PREFIX:yanshuqi_dev}
+
+openim:
+  api-base-url: ${OPENIM_API_BASE_URL:}
+  ws-url: ${OPENIM_WS_URL:}
+  admin-user-id: ${OPENIM_ADMIN_USER_ID:}
+  admin-secret: ${OPENIM_ADMIN_SECRET:}
+  callback-secret: ${OPENIM_CALLBACK_SECRET:}
+  user-id-prefix: ${OPENIM_USER_ID_PREFIX:yanshuqi_}
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info
+  endpoint:
+    health:
+      show-details: always
+  health:
+    db:
+      enabled: true
+    redis:
+      enabled: true
+
+logging:
+  level:
+    root: INFO

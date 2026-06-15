@@ -1,0 +1,61 @@
+server:
+  port: ${SERVER_PORT:8086}
+
+spring:
+  application:
+    name: example-service
+  autoconfigure:
+    exclude:
+      - org.springframework.boot.autoconfigure.jdbc.DataSourceAutoConfiguration
+      - org.springframework.boot.autoconfigure.flyway.FlywayAutoConfiguration
+  data:
+    redis:
+      host: ${REDIS_HOST}
+      port: ${REDIS_PORT}
+      password: ${REDIS_PASSWORD}
+      database: ${REDIS_DATABASE:1}
+      timeout: 3s
+
+app:
+  cache:
+    key-prefix: ${REDIS_KEY_PREFIX:yanshuqi}
+  service:
+    name: example-service
+    redis-key-suffix: example
+  grpc:
+    port: 9096
+  infra:
+    redis-test-key: ${REDIS_KEY_PREFIX:yanshuqi}:example:infra:ping
+    redis-test-ttl-seconds: 60
+
+minio:
+  endpoint: ${MINIO_ENDPOINT}
+  access-key: ${MINIO_ACCESS_KEY}
+  secret-key: ${MINIO_SECRET_KEY}
+  bucket: ${MINIO_BUCKET:dating-yanshuqi}
+  region: ${MINIO_REGION:us-east-1}
+  path-style-access: ${MINIO_PATH_STYLE_ACCESS:true}
+
+rocketmq:
+  name-server: ${ROCKETMQ_NAME_SERVER:}
+  access-key: ${ROCKETMQ_ACCESS_KEY:}
+  secret-key: ${ROCKETMQ_SECRET_KEY:}
+  topic-prefix: ${ROCKETMQ_TOPIC_PREFIX:yanshuqi_dev}
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info
+  endpoint:
+    health:
+      show-details: always
+  health:
+    db:
+      enabled: false
+    redis:
+      enabled: true
+
+logging:
+  level:
+    root: INFO

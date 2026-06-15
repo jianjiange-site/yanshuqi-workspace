@@ -1,0 +1,31 @@
+# Nacos Data ID: ai-chat-dev.yaml
+# Namespace: yanshuqi-dev | Group: DEFAULT_GROUP
+server:
+  port: 8090
+
+spring:
+  application:
+    name: ai-chat
+  data:
+    redis:
+      host: ${REDIS_HOST}
+      port: ${REDIS_PORT}
+
+app:
+  cache:
+    key-prefix: yanshuqi
+  service:
+    name: ai-chat
+    redis-key-suffix: ai
+  grpc:
+    port: 9190
+  infra:
+    redis-test-key: yanshuqi:ai:infra:ping
+
+minio:
+  endpoint: ${MINIO_ENDPOINT}
+  bucket: dating-yanshuqi
+  path-style-access: true
+
+rocketmq:
+  topic-prefix: yanshuqi_dev

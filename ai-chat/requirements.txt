@@ -1,0 +1,10 @@
+fastapi>=0.115.0
+uvicorn[standard]>=0.32.0
+grpcio>=1.68.0
+grpcio-health-checking>=1.68.0
+pydantic-settings>=2.6.0
+python-dotenv>=1.0.1
+psycopg2-binary>=2.9.10
+redis>=5.2.0
+minio>=7.2.12
+nacos-sdk-python>=0.1.12

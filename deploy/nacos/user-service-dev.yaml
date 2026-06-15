@@ -1,0 +1,41 @@
+# Nacos Data ID: user-service-dev.yaml
+# Namespace: yanshuqi-dev | Group: DEFAULT_GROUP
+server:
+  port: 8081
+
+spring:
+  application:
+    name: user-service
+  datasource:
+    url: jdbc:postgresql://${POSTGRES_HOST}:${POSTGRES_PORT}/${POSTGRES_DATABASE:dating_dev_yanshuqi}?currentSchema=user_center&stringtype=unspecified
+    username: ${POSTGRES_USERNAME}
+    password: ${POSTGRES_PASSWORD}
+  data:
+    redis:
+      host: ${REDIS_HOST}
+      port: ${REDIS_PORT}
+      password: ${REDIS_PASSWORD}
+      database: ${REDIS_DATABASE:1}
+  flyway:
+    enabled: true
+    schemas: user_center
+    table: flyway_history_user
+
+app:
+  cache:
+    key-prefix: yanshuqi
+  service:
+    name: user-service
+    redis-key-suffix: user
+  grpc:
+    port: 9091
+  infra:
+    redis-test-key: yanshuqi:user:infra:ping
+
+minio:
+  endpoint: ${MINIO_ENDPOINT}
+  bucket: dating-yanshuqi
+  path-style-access: true
+
+rocketmq:
+  topic-prefix: yanshuqi_dev
