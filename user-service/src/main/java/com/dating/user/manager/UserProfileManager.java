@@ -1,0 +1,91 @@
+package com.dating.user.manager;
+
+import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
+import com.dating.user.entity.UserProfileEntity;
+import com.dating.user.mapper.UserProfileMapper;
+import org.springframework.context.annotation.Profile;
+import org.springframework.dao.DataAccessException;
+import org.springframework.stereotype.Component;
+
+/**
+ * 用户资料表数据访问编排，仅封装 user_center.user_profiles 单表操作。
+ */
+@Component
+@Profile("!test")
+public class UserProfileManager {
+
+    private final UserProfileMapper userProfileMapper;
+
+    /**
+     * 构造用户资料 Manager，注入 user_profiles 表对应的 Mapper。
+     *
+     * @param userProfileMapper 用户资料 Mapper，不能为空
+     * @throws IllegalArgumentException 当 userProfileMapper 为空时
+     * 业务约束：仅持有 UserProfileMapper，仅访问 user_center.user_profiles 单表；禁止 JOIN；禁止跨 schema；禁止跨服务数据库访问。
+     */
+    public UserProfileManager(UserProfileMapper userProfileMapper) {
+        this.userProfileMapper = userProfileMapper;
+    }
+
+    /**
+     * 根据用户业务主键查询用户资料记录。
+     *
+     * @param userId 用户业务主键，不能为空
+     * @return 用户资料实体；不存在时返回 null
+     * @throws IllegalArgumentException 当 userId 为空时
+     * @throws DataAccessException 当数据库访问失败时
+     * 业务约束：仅访问 user_center.user_profiles 单表；禁止 JOIN；禁止跨 schema；禁止跨服务数据库访问。
+     */
+    public UserProfileEntity findByUserId(Long userId) {
+        // 1. 构造单表等值查询条件
+        LambdaQueryWrapper<UserProfileEntity> wrapper = new LambdaQueryWrapper<>();
+        wrapper.eq(UserProfileEntity::getUserId, userId);
+        // 2. 执行单表查询
+        return userProfileMapper.selectOne(wrapper);
+    }
+
+    /**
+     * 根据资料业务主键查询用户资料记录。
+     *
+     * @param profileId 资料业务主键，不能为空
+     * @return 用户资料实体；不存在时返回 null
+     * @throws IllegalArgumentException 当 profileId 为空时
+     * @throws DataAccessException 当数据库访问失败时
+     * 业务约束：仅访问 user_center.user_profiles 单表；禁止 JOIN；禁止跨 schema；禁止跨服务数据库访问。
+     */
+    public UserProfileEntity findByProfileId(Long profileId) {
+        // 1. 构造单表等值查询条件
+        LambdaQueryWrapper<UserProfileEntity> wrapper = new LambdaQueryWrapper<>();
+        wrapper.eq(UserProfileEntity::getProfileId, profileId);
+        // 2. 执行单表查询
+        return userProfileMapper.selectOne(wrapper);
+    }
+
+    /**
+     * 插入用户资料记录。
+     *
+     * @param entity 待插入的用户资料实体，不能为空
+     * @return 影响行数，成功时为 1
+     * @throws IllegalArgumentException 当 entity 为空时
+     * @throws DataAccessException 当数据库访问失败或唯一约束冲突时
+     * 业务约束：仅访问 user_center.user_profiles 单表；禁止 JOIN；禁止跨 schema；禁止跨服务数据库访问；不编排资料维护等业务流程。
+     */
+    public int insert(UserProfileEntity entity) {
+        // 1. 执行单表插入
+        return userProfileMapper.insert(entity);
+    }
+
+    /**
+     * 根据物理主键更新用户资料记录。
+     *
+     * @param entity 待更新的用户资料实体，不能为空且 id 不能为空
+     * @return 影响行数，未命中记录时为 0
+     * @throws IllegalArgumentException 当 entity 为空或 id 为空时
+     * @throws DataAccessException 当数据库访问失败时
+     * 业务约束：仅访问 user_center.user_profiles 单表；禁止 JOIN；禁止跨 schema；禁止跨服务数据库访问。
+     */
+    public int updateById(UserProfileEntity entity) {
+        // 1. 按物理主键执行单表更新
+        return userProfileMapper.updateById(entity);
+    }
+}

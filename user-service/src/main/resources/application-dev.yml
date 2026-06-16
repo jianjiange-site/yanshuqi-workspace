@@ -26,6 +26,15 @@ spring:
     table: flyway_history_user
     baseline-on-migrate: true
 
+mybatis-plus:
+  configuration:
+    map-underscore-to-camel-case: true
+  global-config:
+    db-config:
+      logic-delete-field: deleted
+      logic-delete-value: 1
+      logic-not-delete-value: 0
+
 app:
   cache:
     key-prefix: ${REDIS_KEY_PREFIX:yanshuqi}
