@@ -130,4 +130,25 @@ public class UserAuthIdentityManager {
         // 1. 按物理主键执行单表更新
         return userAuthIdentityMapper.updateById(entity);
     }
+
+    /**
+     * 更新登录凭证最近一次登录时间。
+     *
+     * @param authId       凭证业务主键
+     * @param lastLoginAt  最近一次登录时间，UTC
+     * @throws IllegalArgumentException 当 authId 为空或 lastLoginAt 为空时
+     * @throws DataAccessException 当数据库访问失败时
+     * 业务约束：仅访问 user_center.user_auth_identities 单表；禁止 JOIN；禁止跨 schema；禁止跨服务数据库访问。
+     */
+    public void updateLastLoginAt(Long authId, OffsetDateTime lastLoginAt) {
+        if (authId == null || authId <= 0 || lastLoginAt == null) {
+            throw new IllegalArgumentException("authId 或 lastLoginAt 非法");
+        }
+        // 1. 按 auth_id 单表更新 last_login_at
+        LambdaUpdateWrapper<UserAuthIdentityEntity> wrapper = new LambdaUpdateWrapper<>();
+        wrapper.eq(UserAuthIdentityEntity::getAuthId, authId)
+                .set(UserAuthIdentityEntity::getLastLoginAt, lastLoginAt)
+                .set(UserAuthIdentityEntity::getUpdatedAt, lastLoginAt);
+        userAuthIdentityMapper.update(null, wrapper);
+    }
 }

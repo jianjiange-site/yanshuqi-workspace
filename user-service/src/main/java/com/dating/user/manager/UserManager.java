@@ -103,4 +103,25 @@ public class UserManager {
         // 1. 按物理主键执行逻辑删除
         return userMapper.deleteById(id);
     }
+
+    /**
+     * 更新用户最近一次登录时间。
+     *
+     * @param userId       用户业务主键
+     * @param lastLoginAt  最近一次登录时间，UTC
+     * @throws IllegalArgumentException 当 userId 为空或 lastLoginAt 为空时
+     * @throws DataAccessException 当数据库访问失败时
+     * 业务约束：仅访问 user_center.users 单表；禁止 JOIN；禁止跨 schema；禁止跨服务数据库访问。
+     */
+    public void updateLastLoginAt(Long userId, java.time.OffsetDateTime lastLoginAt) {
+        if (userId == null || userId <= 0 || lastLoginAt == null) {
+            throw new IllegalArgumentException("userId 或 lastLoginAt 非法");
+        }
+        // 1. 按 user_id 单表更新 last_login_at
+        LambdaUpdateWrapper<UserEntity> wrapper = new LambdaUpdateWrapper<>();
+        wrapper.eq(UserEntity::getUserId, userId)
+                .set(UserEntity::getLastLoginAt, lastLoginAt)
+                .set(UserEntity::getUpdatedAt, lastLoginAt);
+        userMapper.update(null, wrapper);
+    }
 }

@@ -1,11 +1,15 @@
 package com.dating.user.service.impl;
 
 import com.dating.user.constant.AccountStatus;
+import com.dating.user.constant.DevicePlatform;
 import com.dating.user.constant.ProfileStatus;
 import com.dating.user.constant.RegisterSource;
 import com.dating.user.constant.UserType;
+import com.dating.user.dto.DeviceInfoCommand;
+import com.dating.user.dto.LoginCommand;
 import com.dating.user.dto.RegisterCommand;
 import com.dating.user.entity.UserAuthIdentityEntity;
+import com.dating.user.entity.UserDeviceEntity;
 import com.dating.user.entity.UserEntity;
 import com.dating.user.exception.UserBizException;
 import com.dating.user.exception.UserErrorCode;
@@ -18,6 +22,7 @@ import com.dating.user.service.UserAuthService;
 import com.dating.user.service.support.BusinessIdGenerator;
 import com.dating.user.service.support.IdentityHashService;
 import com.dating.user.service.support.PasswordHashService;
+import com.dating.user.vo.LoginResult;
 import com.dating.user.vo.RegisterResult;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -43,6 +48,7 @@ public class UserAuthServiceImpl implements UserAuthService {
     private final UserAuthIdentityManager userAuthIdentityManager;
     private final UserProfileManager userProfileManager;
     private final UserSettingsManager userSettingsManager;
+    private final UserDeviceManager userDeviceManager;
     private final IdentityHashService identityHashService;
     private final PasswordHashService passwordHashService;
     private final BusinessIdGenerator businessIdGenerator;
@@ -63,6 +69,7 @@ public class UserAuthServiceImpl implements UserAuthService {
                                UserAuthIdentityManager userAuthIdentityManager,
                                UserProfileManager userProfileManager,
                                UserSettingsManager userSettingsManager,
+                               UserDeviceManager userDeviceManager,
                                IdentityHashService identityHashService,
                                PasswordHashService passwordHashService,
                                BusinessIdGenerator businessIdGenerator) {
@@ -70,6 +77,7 @@ public class UserAuthServiceImpl implements UserAuthService {
         this.userAuthIdentityManager = userAuthIdentityManager;
         this.userProfileManager = userProfileManager;
         this.userSettingsManager = userSettingsManager;
+        this.userDeviceManager = userDeviceManager;
         this.identityHashService = identityHashService;
         this.passwordHashService = passwordHashService;
         this.businessIdGenerator = businessIdGenerator;
@@ -139,6 +147,164 @@ public class UserAuthServiceImpl implements UserAuthService {
         } catch (DuplicateKeyException ex) {
             log.warn("注册唯一索引冲突, identityType={}", identityType);
             throw new UserBizException(UserErrorCode.USER_CONCURRENT_CONFLICT);
+        }
+    }
+
+    /**
+     * 校验登录凭证与密码，更新设备与最近登录时间，不签发 JWT。
+     *
+     * @param command 登录命令
+     * @return 登录结果
+     * @throws UserBizException 当凭证不存在、密码错误、账号状态非法或写入失败时抛出
+     */
+    @Override
+    @Transactional(rollbackFor = Exception.class)
+    public LoginResult verifyLogin(LoginCommand command) {
+        // 1. 参数校验：检查登录凭证、密码、设备信息是否合法
+        validateLoginCommand(command);
+
+        // 2. 凭证归一化与哈希：与注册阶段使用同一套规则
+        String identityType = command.getIdentityType().trim().toUpperCase();
+        String normalizedIdentity = identityHashService.normalize(identityType, command.getIdentityValue());
+        String identityHash = identityHashService.hash(identityType, normalizedIdentity);
+
+        // 3. 查询登录凭证
+        UserAuthIdentityEntity authIdentity = userAuthIdentityManager.findByIdentityTypeAndHash(identityType, identityHash);
+        if (authIdentity == null) {
+            throw new UserBizException(UserErrorCode.IDENTITY_NOT_FOUND);
+        }
+
+        // 4. 密码校验：使用 BCrypt 比对，禁止明文比较
+        if (!passwordHashService.matches(command.getPassword(), authIdentity.getPasswordHash())) {
+            throw new UserBizException(UserErrorCode.PASSWORD_INVALID);
+        }
+
+        // 5. 查询用户主表
+        UserEntity userEntity = userManager.findByUserId(authIdentity.getUserId());
+        if (userEntity == null) {
+            throw new UserBizException(UserErrorCode.USER_NOT_FOUND);
+        }
+
+        // 6. 校验账号状态与用户类型
+        validateAccountStatus(userEntity.getAccountStatus());
+        validateLoginUserType(userEntity.getUserType());
+
+        // 7. 设备信息处理：push_token 转 hash，device_fingerprint 不打印明文
+        DeviceInfoCommand deviceInfo = command.getDeviceInfo();
+        String platform = deviceInfo.getPlatform().trim().toUpperCase();
+        String deviceFingerprint = normalizeDeviceFingerprint(deviceInfo.getDeviceFingerprint());
+        String pushTokenHash = identityHashService.hashPushToken(deviceInfo.getPushToken());
+        String appVersion = StringUtils.hasText(deviceInfo.getAppVersion()) ? deviceInfo.getAppVersion().trim() : null;
+
+        OffsetDateTime lastLoginAt = OffsetDateTime.now(ZoneOffset.UTC);
+        long userId = userEntity.getUserId();
+
+        try {
+            // 8. upsert user_devices：同 user_id + device_fingerprint 不重复创建
+            upsertUserDevice(userId, platform, deviceFingerprint, pushTokenHash, appVersion, lastLoginAt);
+
+            // 9. 更新 users 与 auth_identity 的 last_login_at
+            userManager.updateLastLoginAt(userId, lastLoginAt);
+            userAuthIdentityManager.updateLastLoginAt(authIdentity.getAuthId(), lastLoginAt);
+        } catch (DuplicateKeyException ex) {
+            log.warn("登录设备唯一索引冲突, userId={}", userId);
+            throw new UserBizException(UserErrorCode.USER_CONCURRENT_CONFLICT);
+        }
+
+        // 10. 构建 LoginResult：不返回敏感字段，JWT 由 gateway 负责签发
+        LoginResult result = new LoginResult();
+        result.setUserId(userId);
+        result.setAccountStatus(userEntity.getAccountStatus());
+        result.setProfileStatus(userEntity.getProfileStatus());
+        result.setTokenVersion(userEntity.getTokenVersion());
+        result.setLastLoginAt(lastLoginAt);
+        log.info("用户登录校验成功, userId={}, identityType={}", userId, identityType);
+        return result;
+    }
+
+    private void upsertUserDevice(long userId,
+                                  String platform,
+                                  String deviceFingerprint,
+                                  String pushTokenHash,
+                                  String appVersion,
+                                  OffsetDateTime lastSeenAt) {
+        UserDeviceEntity existing = userDeviceManager.findByUserIdAndDeviceFingerprint(userId, deviceFingerprint);
+        if (existing == null) {
+            long deviceId = businessIdGenerator.nextId();
+            userDeviceManager.createDevice(deviceId, userId, platform, deviceFingerprint, pushTokenHash, appVersion, lastSeenAt);
+            return;
+        }
+        userDeviceManager.updateDeviceSeen(existing, platform, pushTokenHash, appVersion, lastSeenAt);
+    }
+
+    private void validateLoginCommand(LoginCommand command) {
+        if (command == null) {
+            throw new UserBizException(UserErrorCode.USER_REQUEST_INVALID, "登录命令不能为空");
+        }
+        identityHashService.parseSupportedIdentityType(command.getIdentityType());
+        if (!StringUtils.hasText(command.getIdentityValue())) {
+            throw new UserBizException(UserErrorCode.USER_REQUEST_INVALID, "登录凭证不能为空");
+        }
+        passwordHashService.validateLoginPassword(command.getPassword());
+        validateDeviceInfo(command.getDeviceInfo());
+    }
+
+    private void validateDeviceInfo(DeviceInfoCommand deviceInfo) {
+        if (deviceInfo == null) {
+            throw new UserBizException(UserErrorCode.USER_REQUEST_INVALID, "设备信息不能为空");
+        }
+        if (!StringUtils.hasText(deviceInfo.getPlatform())) {
+            throw new UserBizException(UserErrorCode.USER_REQUEST_INVALID, "设备平台不能为空");
+        }
+        try {
+            DevicePlatform.valueOf(deviceInfo.getPlatform().trim().toUpperCase());
+        } catch (IllegalArgumentException ex) {
+            throw new UserBizException(UserErrorCode.USER_REQUEST_INVALID, "设备平台非法");
+        }
+        normalizeDeviceFingerprint(deviceInfo.getDeviceFingerprint());
+    }
+
+    private String normalizeDeviceFingerprint(String deviceFingerprint) {
+        if (!StringUtils.hasText(deviceFingerprint)) {
+            throw new UserBizException(UserErrorCode.USER_REQUEST_INVALID, "设备指纹不能为空");
+        }
+        String normalized = deviceFingerprint.trim();
+        if (normalized.length() < 8 || normalized.length() > 128) {
+            throw new UserBizException(UserErrorCode.USER_REQUEST_INVALID, "设备指纹格式非法");
+        }
+        return normalized;
+    }
+
+    private void validateAccountStatus(String accountStatus) {
+        if (!StringUtils.hasText(accountStatus)) {
+            throw new UserBizException(UserErrorCode.USER_REQUEST_INVALID, "账号状态非法");
+        }
+        final AccountStatus status;
+        try {
+            status = AccountStatus.valueOf(accountStatus.trim().toUpperCase());
+        } catch (IllegalArgumentException ex) {
+            throw new UserBizException(UserErrorCode.USER_REQUEST_INVALID, "账号状态非法");
+        }
+        switch (status) {
+            case ACTIVE -> {
+                return;
+            }
+            case DISABLED -> throw new UserBizException(UserErrorCode.USER_DISABLED);
+            case BANNED -> throw new UserBizException(UserErrorCode.USER_BANNED);
+            case DELETED -> throw new UserBizException(UserErrorCode.USER_DELETED);
+            default -> throw new UserBizException(UserErrorCode.USER_REQUEST_INVALID, "账号状态非法");
+        }
+    }
+
+    private void validateLoginUserType(String userType) {
+        if (!StringUtils.hasText(userType)) {
+            throw new UserBizException(UserErrorCode.USER_REQUEST_INVALID, "用户类型非法");
+        }
+        if (UserType.DH.name().equals(userType.trim().toUpperCase())) {
+            throw new UserBizException(UserErrorCode.USER_REQUEST_INVALID, "本阶段不支持 DH 用户普通登录");
+        }
+        if (!UserType.BH.name().equals(userType.trim().toUpperCase())) {
+            throw new UserBizException(UserErrorCode.USER_REQUEST_INVALID, "用户类型非法");
         }
     }
 

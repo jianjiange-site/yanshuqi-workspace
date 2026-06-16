@@ -11,6 +11,9 @@ public enum UserErrorCode {
     /** 登录凭证不存在。 */
     AUTH_IDENTITY_NOT_FOUND("AUTH_IDENTITY_NOT_FOUND", "登录凭证不存在"),
 
+    /** 登录凭证未找到（登录场景）。 */
+    IDENTITY_NOT_FOUND("IDENTITY_NOT_FOUND", "登录凭证不存在"),
+
     /** 用户资料不存在。 */
     PROFILE_NOT_FOUND("PROFILE_NOT_FOUND", "用户资料不存在"),
 
@@ -25,6 +28,15 @@ public enum UserErrorCode {
 
     /** 密码非法或校验失败。 */
     PASSWORD_INVALID("PASSWORD_INVALID", "密码校验失败"),
+
+    /** 用户已停用。 */
+    USER_DISABLED("USER_DISABLED", "用户已停用"),
+
+    /** 用户已封禁。 */
+    USER_BANNED("USER_BANNED", "用户已封禁"),
+
+    /** 用户已注销。 */
+    USER_DELETED("USER_DELETED", "用户已注销"),
 
     /** 并发冲突。 */
     USER_CONCURRENT_CONFLICT("USER_CONCURRENT_CONFLICT", "操作并发冲突"),
