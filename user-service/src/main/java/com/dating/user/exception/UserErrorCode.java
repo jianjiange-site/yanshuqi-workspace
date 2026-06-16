@@ -1,7 +1,7 @@
 package com.dating.user.exception;
 
 /**
- * 用户域业务错误码定义，本阶段仅建立基础结构。
+ * 用户域业务错误码定义。
  */
 public enum UserErrorCode {
 
@@ -16,6 +16,18 @@ public enum UserErrorCode {
 
     /** 参数非法。 */
     INVALID_PARAMETER("INVALID_PARAMETER", "参数非法"),
+
+    /** 注册请求参数非法。 */
+    USER_REQUEST_INVALID("USER_REQUEST_INVALID", "请求参数非法"),
+
+    /** 登录凭证已存在。 */
+    IDENTITY_ALREADY_EXISTS("IDENTITY_ALREADY_EXISTS", "登录凭证已存在"),
+
+    /** 密码非法或校验失败。 */
+    PASSWORD_INVALID("PASSWORD_INVALID", "密码校验失败"),
+
+    /** 并发冲突。 */
+    USER_CONCURRENT_CONFLICT("USER_CONCURRENT_CONFLICT", "操作并发冲突"),
 
     /** 系统内部错误。 */
     INTERNAL_ERROR("INTERNAL_ERROR", "系统内部错误");

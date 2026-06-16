@@ -43,6 +43,10 @@ app:
     redis-key-suffix: user
   grpc:
     port: 9091
+
+grpc:
+  server:
+    port: ${GRPC_PORT:9091}
   infra:
     redis-test-key: ${REDIS_KEY_PREFIX:yanshuqi}:user:infra:ping
     redis-test-ttl-seconds: 60

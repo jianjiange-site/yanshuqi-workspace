@@ -1,0 +1,60 @@
+syntax = "proto3";
+
+package com.dating.user.auth.v1;
+
+import "google/protobuf/timestamp.proto";
+
+option java_multiple_files = true;
+option java_package = "com.dating.user.grpc.proto";
+option java_outer_classname = "UserAuthServiceProto";
+
+// 用户认证 gRPC 服务。
+service UserAuthService {
+  // 注册新用户，初始化 users / auth / profile / settings 四张表基础数据。
+  rpc Register(RegisterRequest) returns (RegisterResponse);
+  // 校验登录凭证与密码，更新设备与最近登录时间，不签发 JWT。
+  rpc VerifyLogin(VerifyLoginRequest) returns (VerifyLoginResponse);
+}
+
+// 注册请求。
+message RegisterRequest {
+  string identity_type = 1;
+  string identity_value = 2;
+  string password = 3;
+  string user_type = 4;
+  string register_source = 5;
+  DeviceInfo device_info = 6;
+}
+
+// 登录校验请求。
+message VerifyLoginRequest {
+  string identity_type = 1;
+  string identity_value = 2;
+  string password = 3;
+  DeviceInfo device_info = 4;
+}
+
+// 设备信息。
+message DeviceInfo {
+  string platform = 1;
+  string device_fingerprint = 2;
+  string push_token = 3;
+  string app_version = 4;
+}
+
+// 注册响应，不包含 token 与敏感字段。
+message RegisterResponse {
+  int64 user_id = 1;
+  string account_status = 2;
+  string profile_status = 3;
+  int32 token_version = 4;
+}
+
+// 登录校验响应，供 gateway 签发 JWT，不包含 token 与敏感字段。
+message VerifyLoginResponse {
+  int64 user_id = 1;
+  string account_status = 2;
+  string profile_status = 3;
+  int32 token_version = 4;
+  google.protobuf.Timestamp last_login_at = 5;
+}

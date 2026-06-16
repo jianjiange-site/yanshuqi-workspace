@@ -1,11 +1,15 @@
 package com.dating.user.manager;
 
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
+import com.baomidou.mybatisplus.core.conditions.update.LambdaUpdateWrapper;
 import com.dating.user.entity.UserAuthIdentityEntity;
 import com.dating.user.mapper.UserAuthIdentityMapper;
 import org.springframework.context.annotation.Profile;
 import org.springframework.dao.DataAccessException;
 import org.springframework.stereotype.Component;
+
+import java.time.OffsetDateTime;
+import java.time.ZoneOffset;
 
 /**
  * 用户登录凭证表数据访问编排，仅封装 user_center.user_auth_identities 单表操作。
@@ -75,6 +79,42 @@ public class UserAuthIdentityManager {
     public int insert(UserAuthIdentityEntity entity) {
         // 1. 执行单表插入
         return userAuthIdentityMapper.insert(entity);
+    }
+
+    /**
+     * 创建登录凭证记录。
+     *
+     * @param authId           凭证业务主键
+     * @param userId           用户业务主键
+     * @param identityType     凭证类型
+     * @param identityValue    脱敏后的凭证值
+     * @param identityHash     凭证哈希
+     * @param passwordHash     密码哈希
+     * @throws IllegalArgumentException 当关键参数为空时
+     * @throws DataAccessException 当数据库访问失败或唯一约束冲突时
+     * 业务约束：仅访问 user_center.user_auth_identities 单表；禁止 JOIN；禁止跨 schema；禁止跨服务数据库访问。
+     */
+    public void createIdentity(long authId,
+                               long userId,
+                               String identityType,
+                               String identityValue,
+                               String identityHash,
+                               String passwordHash) {
+        if (authId <= 0 || userId <= 0) {
+            throw new IllegalArgumentException("authId 或 userId 非法");
+        }
+        UserAuthIdentityEntity entity = new UserAuthIdentityEntity();
+        entity.setAuthId(authId);
+        entity.setUserId(userId);
+        entity.setIdentityType(identityType);
+        entity.setIdentityValue(identityValue);
+        entity.setIdentityHash(identityHash);
+        entity.setPasswordHash(passwordHash);
+        entity.setVerified(0);
+        entity.setCreatedAt(OffsetDateTime.now(ZoneOffset.UTC));
+        entity.setUpdatedAt(OffsetDateTime.now(ZoneOffset.UTC));
+        // 1. 执行单表插入
+        userAuthIdentityMapper.insert(entity);
     }
 
     /**

@@ -76,6 +76,27 @@ public class UserSettingsManager {
     }
 
     /**
+     * 创建默认用户设置记录。
+     *
+     * @param settingId 设置业务主键
+     * @param userId    用户业务主键
+     * @throws IllegalArgumentException 当 settingId 或 userId 非法时
+     * @throws DataAccessException 当数据库访问失败或唯一约束冲突时
+     * 业务约束：仅访问 user_center.user_settings 单表；禁止 JOIN；禁止跨 schema；禁止跨服务数据库访问。
+     */
+    public void createDefaultSettings(long settingId, long userId) {
+        if (settingId <= 0 || userId <= 0) {
+            throw new IllegalArgumentException("settingId 或 userId 非法");
+        }
+        UserSettingsEntity entity = new UserSettingsEntity();
+        entity.setSettingId(settingId);
+        entity.setUserId(userId);
+        entity.setDiscoverable(1);
+        // 1. 执行单表插入
+        userSettingsMapper.insert(entity);
+    }
+
+    /**
      * 根据物理主键更新用户设置记录。
      *
      * @param entity 待更新的用户设置实体，不能为空且 id 不能为空

@@ -37,3 +37,7 @@ minio:
   bucket: dating-yanshuqi
   region: us-east-1
   path-style-access: true
+
+grpc:
+  server:
+    port: -1

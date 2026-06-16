@@ -1,11 +1,13 @@
 package com.dating.user.manager;
 
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
+import com.baomidou.mybatisplus.core.conditions.update.LambdaUpdateWrapper;
 import com.dating.user.entity.UserEntity;
 import com.dating.user.mapper.UserMapper;
 import org.springframework.context.annotation.Profile;
 import org.springframework.dao.DataAccessException;
 import org.springframework.stereotype.Component;
+import org.springframework.util.StringUtils;
 
 /**
  * 用户主表数据访问编排，仅封装 user_center.users 单表操作。
@@ -56,6 +58,22 @@ public class UserManager {
     public int insert(UserEntity entity) {
         // 1. 执行单表插入
         return userMapper.insert(entity);
+    }
+
+    /**
+     * 创建用户主表记录。
+     *
+     * @param entity 用户实体，userId 不能为空
+     * @throws IllegalArgumentException 当 entity 或 userId 为空时
+     * @throws DataAccessException 当数据库访问失败或唯一约束冲突时
+     * 业务约束：仅访问 user_center.users 单表；禁止 JOIN；禁止跨 schema；禁止跨服务数据库访问。
+     */
+    public void createUser(UserEntity entity) {
+        if (entity == null || entity.getUserId() == null) {
+            throw new IllegalArgumentException("用户实体或 userId 不能为空");
+        }
+        // 1. 执行单表插入
+        userMapper.insert(entity);
     }
 
     /**

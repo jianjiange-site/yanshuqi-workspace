@@ -7,6 +7,9 @@ import org.springframework.context.annotation.Profile;
 import org.springframework.dao.DataAccessException;
 import org.springframework.stereotype.Component;
 
+import java.time.OffsetDateTime;
+import java.time.ZoneOffset;
+
 /**
  * 用户资料表数据访问编排，仅封装 user_center.user_profiles 单表操作。
  */
@@ -73,6 +76,28 @@ public class UserProfileManager {
     public int insert(UserProfileEntity entity) {
         // 1. 执行单表插入
         return userProfileMapper.insert(entity);
+    }
+
+    /**
+     * 创建默认用户资料记录。
+     *
+     * @param profileId 资料业务主键
+     * @param userId    用户业务主键
+     * @throws IllegalArgumentException 当 profileId 或 userId 非法时
+     * @throws DataAccessException 当数据库访问失败或唯一约束冲突时
+     * 业务约束：仅访问 user_center.user_profiles 单表；禁止 JOIN；禁止跨 schema；禁止跨服务数据库访问。
+     */
+    public void createDefaultProfile(long profileId, long userId) {
+        if (profileId <= 0 || userId <= 0) {
+            throw new IllegalArgumentException("profileId 或 userId 非法");
+        }
+        UserProfileEntity entity = new UserProfileEntity();
+        entity.setProfileId(profileId);
+        entity.setUserId(userId);
+        entity.setProfileScore(0);
+        entity.setProfileCompleted(0);
+        // 1. 执行单表插入
+        userProfileMapper.insert(entity);
     }
 
     /**
