@@ -113,4 +113,21 @@ public class UserProfileManager {
         // 1. 按物理主键执行单表更新
         return userProfileMapper.updateById(entity);
     }
+
+    /**
+     * 更新用户资料记录，仅更新允许维护的基础字段，不修改 avatar_key。
+     *
+     * @param entity 待更新的资料实体，id 不能为空
+     * @throws IllegalArgumentException 当 entity 或 id 为空时
+     * @throws DataAccessException 当数据库访问失败时
+     * 业务约束：仅访问 user_center.user_profiles 单表；禁止 JOIN；禁止跨 schema；禁止跨服务数据库访问。
+     */
+    public void updateProfile(UserProfileEntity entity) {
+        if (entity == null || entity.getId() == null) {
+            throw new IllegalArgumentException("资料实体或 id 不能为空");
+        }
+        entity.setUpdatedAt(OffsetDateTime.now(ZoneOffset.UTC));
+        // 1. 按物理主键执行单表更新
+        userProfileMapper.updateById(entity);
+    }
 }

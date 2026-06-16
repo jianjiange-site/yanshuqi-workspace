@@ -1,0 +1,66 @@
+syntax = "proto3";
+
+package com.dating.user.profile.v1;
+
+import "google/protobuf/timestamp.proto";
+
+option java_multiple_files = true;
+option java_package = "com.dating.user.grpc.proto";
+option java_outer_classname = "UserProfileServiceProto";
+
+// 用户资料 gRPC 服务（USER-04 仅实现 GetSelfProfile / UpdateProfile）。
+service UserProfileService {
+  // 查询本人资料。
+  rpc GetSelfProfile(GetSelfProfileRequest) returns (GetSelfProfileResponse);
+  // 更新本人基础资料，不处理头像/相册。
+  rpc UpdateProfile(UpdateProfileRequest) returns (UpdateProfileResponse);
+}
+
+// 查询本人资料请求。
+message GetSelfProfileRequest {
+  int64 user_id = 1;
+}
+
+// 用户资料详情，不含敏感字段。
+message UserProfileDetail {
+  int64 user_id = 1;
+  string user_type = 2;
+  string account_status = 3;
+  string profile_status = 4;
+  string nickname = 5;
+  string gender = 6;
+  string birth_date = 7;
+  string country_code = 8;
+  string city_code = 9;
+  repeated string language_codes = 10;
+  string bio = 11;
+  string avatar_key = 12;
+  repeated string interests = 13;
+  int32 profile_score = 14;
+  int32 profile_completed = 15;
+  google.protobuf.Timestamp created_at = 16;
+  google.protobuf.Timestamp updated_at = 17;
+}
+
+// 查询本人资料响应。
+message GetSelfProfileResponse {
+  UserProfileDetail profile = 1;
+}
+
+// 更新资料请求，不包含 avatar_key。
+message UpdateProfileRequest {
+  int64 user_id = 1;
+  string nickname = 2;
+  string gender = 3;
+  string birth_date = 4;
+  string country_code = 5;
+  string city_code = 6;
+  repeated string language_codes = 7;
+  string bio = 8;
+  repeated string interests = 9;
+}
+
+// 更新资料响应。
+message UpdateProfileResponse {
+  UserProfileDetail profile = 1;
+}

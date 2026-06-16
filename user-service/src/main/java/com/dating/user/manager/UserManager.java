@@ -124,4 +124,25 @@ public class UserManager {
                 .set(UserEntity::getUpdatedAt, lastLoginAt);
         userMapper.update(null, wrapper);
     }
+
+    /**
+     * 更新用户资料状态。
+     *
+     * @param userId        用户业务主键
+     * @param profileStatus 资料状态
+     * @throws IllegalArgumentException 当 userId 或 profileStatus 为空时
+     * @throws DataAccessException 当数据库访问失败时
+     * 业务约束：仅访问 user_center.users 单表；禁止 JOIN；禁止跨 schema；禁止跨服务数据库访问。
+     */
+    public void updateProfileStatus(Long userId, String profileStatus) {
+        if (userId == null || userId <= 0 || !StringUtils.hasText(profileStatus)) {
+            throw new IllegalArgumentException("userId 或 profileStatus 非法");
+        }
+        java.time.OffsetDateTime now = java.time.OffsetDateTime.now(java.time.ZoneOffset.UTC);
+        LambdaUpdateWrapper<UserEntity> wrapper = new LambdaUpdateWrapper<>();
+        wrapper.eq(UserEntity::getUserId, userId)
+                .set(UserEntity::getProfileStatus, profileStatus.trim().toUpperCase())
+                .set(UserEntity::getUpdatedAt, now);
+        userMapper.update(null, wrapper);
+    }
 }

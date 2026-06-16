@@ -41,6 +41,9 @@ public enum UserErrorCode {
     /** 并发冲突。 */
     USER_CONCURRENT_CONFLICT("USER_CONCURRENT_CONFLICT", "操作并发冲突"),
 
+    /** 资料更新参数非法。 */
+    PROFILE_UPDATE_INVALID("PROFILE_UPDATE_INVALID", "资料更新参数非法"),
+
     /** 系统内部错误。 */
     INTERNAL_ERROR("INTERNAL_ERROR", "系统内部错误");
 
