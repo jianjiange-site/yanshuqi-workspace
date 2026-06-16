@@ -8,6 +8,9 @@ public final class RedisKeyConstants {
     /** user-service Redis Key 统一前缀。 */
     public static final String KEY_PREFIX = "yanshuqi:user:";
 
+    /** 资料缓存默认 TTL（秒），实际以 UserCacheProperties 为准。 */
+    public static final int DEFAULT_PROFILE_TTL_SECONDS = 600;
+
     /**
      * 构建用户资料缓存 Key。
      *

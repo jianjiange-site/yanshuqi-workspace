@@ -2,16 +2,20 @@ package com.dating.user.grpc;
 
 import com.dating.user.exception.UserBizException;
 import com.dating.user.exception.UserErrorCode;
-import io.grpc.Status;
+import com.dating.user.exception.UserGrpcStatusMapper;
 import io.grpc.StatusRuntimeException;
 import net.devh.boot.grpc.server.advice.GrpcAdvice;
 import net.devh.boot.grpc.server.advice.GrpcExceptionHandler;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 /**
  * gRPC 全局异常转换，将用户域业务异常映射为 gRPC Status。
  */
 @GrpcAdvice
 public class UserGrpcExceptionAdvice {
+
+    private static final Logger log = LoggerFactory.getLogger(UserGrpcExceptionAdvice.class);
 
     /**
      * 将 UserBizException 转换为 gRPC StatusRuntimeException。
@@ -22,21 +26,22 @@ public class UserGrpcExceptionAdvice {
     @GrpcExceptionHandler(UserBizException.class)
     public StatusRuntimeException handleUserBizException(UserBizException exception) {
         UserErrorCode errorCode = exception.getErrorCode();
-        Status status = mapErrorCode(errorCode).withDescription(errorCode.getCode());
-        return status.asRuntimeException();
+        log.warn("gRPC业务异常, errorCode={}", errorCode.getCode());
+        return UserGrpcStatusMapper.toRuntimeException(exception);
     }
 
-    private Status mapErrorCode(UserErrorCode errorCode) {
-        return switch (errorCode) {
-            case USER_REQUEST_INVALID, INVALID_PARAMETER, PROFILE_UPDATE_INVALID,
-                    PHOTO_OBJECT_KEY_INVALID, PHOTO_TYPE_INVALID, PHOTO_LIMIT_EXCEEDED,
-                    USER_BATCH_SIZE_EXCEEDED, USER_PROFILE_QUERY_INVALID -> Status.INVALID_ARGUMENT;
-            case PASSWORD_INVALID, IDENTITY_NOT_FOUND, AUTH_IDENTITY_NOT_FOUND -> Status.UNAUTHENTICATED;
-            case USER_DISABLED, USER_BANNED, USER_DELETED -> Status.PERMISSION_DENIED;
-            case IDENTITY_ALREADY_EXISTS -> Status.ALREADY_EXISTS;
-            case USER_CONCURRENT_CONFLICT -> Status.ABORTED;
-            case USER_NOT_FOUND, PROFILE_NOT_FOUND, PHOTO_NOT_FOUND -> Status.NOT_FOUND;
-            default -> Status.INTERNAL;
-        };
+    /**
+     * 将未识别异常映射为 INTERNAL，不向调用方泄露堆栈。
+     *
+     * @param exception 未知异常
+     * @return gRPC 运行时异常
+     */
+    @GrpcExceptionHandler(Exception.class)
+    public StatusRuntimeException handleUnexpectedException(Exception exception) {
+        if (exception instanceof UserBizException userBizException) {
+            return handleUserBizException(userBizException);
+        }
+        log.error("gRPC未知异常, type={}", exception.getClass().getSimpleName());
+        return UserGrpcStatusMapper.toInternalException();
     }
 }

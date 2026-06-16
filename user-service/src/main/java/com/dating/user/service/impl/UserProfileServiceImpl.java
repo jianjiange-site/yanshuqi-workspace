@@ -14,6 +14,7 @@ import com.dating.user.service.support.ProfileCompletionCalculator;
 import com.dating.user.service.support.ProfileFieldValidator;
 import com.dating.user.service.support.ProfileJsonSupport;
 import com.dating.user.service.support.ProfileStatusResolver;
+import com.dating.user.service.support.SlowCallLogger;
 import com.dating.user.vo.UserProfileDetailVO;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -38,6 +39,7 @@ public class UserProfileServiceImpl implements UserProfileService {
     private final ProfileJsonSupport profileJsonSupport;
     private final ProfileStatusResolver profileStatusResolver;
     private final UserCacheInvalidationService userCacheInvalidationService;
+    private final SlowCallLogger slowCallLogger;
 
     /**
      * 构造用户资料业务服务。
@@ -49,6 +51,7 @@ public class UserProfileServiceImpl implements UserProfileService {
      * @param profileJsonSupport           资料 JSON 支持
      * @param profileStatusResolver        资料状态解析器
      * @param userCacheInvalidationService 缓存失效服务
+     * @param slowCallLogger               慢调用日志记录器
      */
     public UserProfileServiceImpl(UserManager userManager,
                                     UserProfileManager userProfileManager,
@@ -56,7 +59,8 @@ public class UserProfileServiceImpl implements UserProfileService {
                                     ProfileCompletionCalculator profileCompletionCalculator,
                                     ProfileJsonSupport profileJsonSupport,
                                     ProfileStatusResolver profileStatusResolver,
-                                    UserCacheInvalidationService userCacheInvalidationService) {
+                                    UserCacheInvalidationService userCacheInvalidationService,
+                                    SlowCallLogger slowCallLogger) {
         this.userManager = userManager;
         this.userProfileManager = userProfileManager;
         this.profileFieldValidator = profileFieldValidator;
@@ -64,6 +68,7 @@ public class UserProfileServiceImpl implements UserProfileService {
         this.profileJsonSupport = profileJsonSupport;
         this.profileStatusResolver = profileStatusResolver;
         this.userCacheInvalidationService = userCacheInvalidationService;
+        this.slowCallLogger = slowCallLogger;
     }
 
     /**
@@ -103,41 +108,55 @@ public class UserProfileServiceImpl implements UserProfileService {
     @Override
     @Transactional(rollbackFor = Exception.class)
     public UserProfileDetailVO updateProfile(UpdateProfileCommand command) {
-        // 1. 参数校验与字段规范化
-        profileFieldValidator.validateAndNormalize(command);
+        long startNano = System.nanoTime();
+        boolean success = true;
+        String errorCode = null;
+        Long userId = command == null ? null : command.getUserId();
+        try {
+            // 1. 参数校验与字段规范化
+            profileFieldValidator.validateAndNormalize(command);
+            userId = command.getUserId();
 
-        // 2. 查询用户主表并校验账号状态
-        UserEntity userEntity = userManager.findByUserId(command.getUserId());
-        if (userEntity == null) {
-            throw new UserBizException(UserErrorCode.USER_NOT_FOUND);
+            // 2. 查询用户主表并校验账号状态
+            UserEntity userEntity = userManager.findByUserId(command.getUserId());
+            if (userEntity == null) {
+                throw new UserBizException(UserErrorCode.USER_NOT_FOUND);
+            }
+            validateAccountStatusForUpdate(userEntity.getAccountStatus());
+
+            // 3. 查询资料记录
+            UserProfileEntity profileEntity = userProfileManager.findByUserId(command.getUserId());
+            if (profileEntity == null) {
+                throw new UserBizException(UserErrorCode.PROFILE_NOT_FOUND);
+            }
+
+            // 4. 计算 profile_score / profile_completed / profile_status
+            ProfileCompletionCalculator.CompletionResult completionResult = profileCompletionCalculator.calculate(command);
+
+            // 5. 更新 user_profiles，保留 avatar_key 不变
+            applyProfileUpdates(profileEntity, command, completionResult);
+            userProfileManager.updateProfile(profileEntity);
+
+            // 6. 更新 users.profile_status，保留已有 avatar_key 对应的状态
+            String profileStatus = profileStatusResolver.resolve(
+                    completionResult.getProfileCompleted(),
+                    profileEntity.getAvatarKey());
+            userManager.updateProfileStatus(command.getUserId(), profileStatus);
+            userEntity.setProfileStatus(profileStatus);
+
+            // 7. 删除资料相关 Redis 缓存，失败不回滚主事务
+            userCacheInvalidationService.evictProfileCache(command.getUserId());
+
+            log.info("用户资料更新成功, userId={}, profileScore={}, profileStatus={}",
+                    command.getUserId(), completionResult.getProfileScore(), profileStatus);
+            return buildProfileDetailVO(userEntity, profileEntity);
+        } catch (UserBizException ex) {
+            success = false;
+            errorCode = ex.getErrorCode().getCode();
+            throw ex;
+        } finally {
+            slowCallLogger.logIfSlow("updateProfile", startNano, userId, success, errorCode);
         }
-        validateAccountStatusForUpdate(userEntity.getAccountStatus());
-
-        // 3. 查询资料记录
-        UserProfileEntity profileEntity = userProfileManager.findByUserId(command.getUserId());
-        if (profileEntity == null) {
-            throw new UserBizException(UserErrorCode.PROFILE_NOT_FOUND);
-        }
-
-        // 4. 计算 profile_score / profile_completed / profile_status
-        ProfileCompletionCalculator.CompletionResult completionResult = profileCompletionCalculator.calculate(command);
-
-        // 5. 更新 user_profiles，保留 avatar_key 不变
-        applyProfileUpdates(profileEntity, command, completionResult);
-        userProfileManager.updateProfile(profileEntity);
-
-        // 6. 更新 users.profile_status，保留已有 avatar_key 对应的状态
-        String profileStatus = profileStatusResolver.resolve(
-                completionResult.getProfileCompleted(),
-                profileEntity.getAvatarKey());
-        userManager.updateProfileStatus(command.getUserId(), profileStatus);
-        userEntity.setProfileStatus(profileStatus);
-
-        // 7. 删除资料相关 Redis 缓存，失败不回滚主事务
-        userCacheInvalidationService.evictProfileCache(command.getUserId());
-
-        log.info("用户资料更新成功, userId={}, profileScore={}", command.getUserId(), completionResult.getProfileScore());
-        return buildProfileDetailVO(userEntity, profileEntity);
     }
 
     private void validateAccountStatusForUpdate(String accountStatus) {

@@ -15,6 +15,7 @@ import com.dating.user.manager.UserProfileManager;
 import com.dating.user.service.impl.UserProfileQueryServiceImpl;
 import com.dating.user.service.support.BatchUserIdsValidator;
 import com.dating.user.service.support.ProfileJsonSupport;
+import com.dating.user.service.support.SlowCallLogger;
 import com.dating.user.service.support.UserAvailabilityEvaluator;
 import com.dating.user.vo.BasicUserProfileVO;
 import com.dating.user.vo.RecommendUserProfileVO;
@@ -84,7 +85,8 @@ class UserProfileQueryServiceTest {
                 userProfileCacheService,
                 new BatchUserIdsValidator(),
                 new UserAvailabilityEvaluator(),
-                new ProfileJsonSupport()
+                new ProfileJsonSupport(),
+                SlowCallLogger.forTest()
         );
     }
 

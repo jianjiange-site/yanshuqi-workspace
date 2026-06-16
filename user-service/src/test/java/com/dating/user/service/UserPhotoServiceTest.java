@@ -17,6 +17,8 @@ import com.dating.user.service.impl.UserPhotoServiceImpl;
 import com.dating.user.service.support.BusinessIdGenerator;
 import com.dating.user.service.support.PhotoObjectKeyValidator;
 import com.dating.user.service.support.ProfileStatusResolver;
+import com.dating.user.service.support.SlowCallLogger;
+import com.dating.user.service.support.CacheSafeExecutor;
 import com.dating.user.vo.BindPhotoResult;
 import com.dating.user.vo.UserPhotoVO;
 import org.junit.jupiter.api.BeforeEach;
@@ -97,7 +99,8 @@ class UserPhotoServiceTest {
                 photoObjectKeyValidator,
                 profileStatusResolver,
                 businessIdGenerator,
-                userCacheInvalidationService
+                userCacheInvalidationService,
+                SlowCallLogger.forTest()
         );
     }
 
@@ -289,6 +292,7 @@ class UserPhotoServiceTest {
         StringRedisTemplate stringRedisTemplate = org.mockito.Mockito.mock(StringRedisTemplate.class);
         org.mockito.Mockito.when(stringRedisTemplate.delete(org.mockito.ArgumentMatchers.anyCollection()))
                 .thenThrow(new RuntimeException("redis down"));
+        CacheSafeExecutor cacheSafeExecutor = new CacheSafeExecutor(stringRedisTemplate);
         UserPhotoService service = new UserPhotoServiceImpl(
                 userManager,
                 userProfileManager,
@@ -296,7 +300,8 @@ class UserPhotoServiceTest {
                 photoObjectKeyValidator,
                 profileStatusResolver,
                 businessIdGenerator,
-                new UserCacheInvalidationService(stringRedisTemplate)
+                new UserCacheInvalidationService(cacheSafeExecutor),
+                SlowCallLogger.forTest()
         );
         mockActiveUserAndProfile(1);
         when(userPhotoManager.findByUserIdAndObjectKey(USER_ID, AVATAR_KEY)).thenReturn(null);

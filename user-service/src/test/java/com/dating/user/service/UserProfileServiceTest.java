@@ -15,6 +15,7 @@ import com.dating.user.service.support.ProfileCompletionCalculator;
 import com.dating.user.service.support.ProfileFieldValidator;
 import com.dating.user.service.support.ProfileJsonSupport;
 import com.dating.user.service.support.ProfileStatusResolver;
+import com.dating.user.service.support.SlowCallLogger;
 import com.dating.user.vo.UserProfileDetailVO;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -22,6 +23,7 @@ import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.ArgumentCaptor;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
+import com.dating.user.service.support.CacheSafeExecutor;
 import org.springframework.data.redis.core.StringRedisTemplate;
 
 import java.lang.reflect.Field;
@@ -85,7 +87,8 @@ class UserProfileServiceTest {
                 profileCompletionCalculator,
                 profileJsonSupport,
                 profileStatusResolver,
-                userCacheInvalidationService
+                userCacheInvalidationService,
+                SlowCallLogger.forTest()
         );
     }
 
@@ -324,6 +327,7 @@ class UserProfileServiceTest {
         StringRedisTemplate stringRedisTemplate = org.mockito.Mockito.mock(StringRedisTemplate.class);
         org.mockito.Mockito.when(stringRedisTemplate.delete(org.mockito.ArgumentMatchers.anyCollection()))
                 .thenThrow(new RuntimeException("redis down"));
+        CacheSafeExecutor cacheSafeExecutor = new CacheSafeExecutor(stringRedisTemplate);
         UserProfileService serviceWithRealCacheEvictor = new UserProfileServiceImpl(
                 userManager,
                 userProfileManager,
@@ -331,7 +335,8 @@ class UserProfileServiceTest {
                 profileCompletionCalculator,
                 profileJsonSupport,
                 profileStatusResolver,
-                new UserCacheInvalidationService(stringRedisTemplate)
+                new UserCacheInvalidationService(cacheSafeExecutor),
+                SlowCallLogger.forTest()
         );
         mockUpdateContext(AccountStatus.ACTIVE.name(), buildProfile(null, null));
 

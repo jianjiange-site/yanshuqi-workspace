@@ -18,6 +18,7 @@ import com.dating.user.service.UserPhotoService;
 import com.dating.user.service.support.BusinessIdGenerator;
 import com.dating.user.service.support.PhotoObjectKeyValidator;
 import com.dating.user.service.support.ProfileStatusResolver;
+import com.dating.user.service.support.SlowCallLogger;
 import com.dating.user.vo.BindPhotoResult;
 import com.dating.user.vo.UserPhotoVO;
 import org.slf4j.Logger;
@@ -50,6 +51,7 @@ public class UserPhotoServiceImpl implements UserPhotoService {
     private final ProfileStatusResolver profileStatusResolver;
     private final BusinessIdGenerator businessIdGenerator;
     private final UserCacheInvalidationService userCacheInvalidationService;
+    private final SlowCallLogger slowCallLogger;
 
     /**
      * 构造用户照片业务服务。
@@ -61,6 +63,7 @@ public class UserPhotoServiceImpl implements UserPhotoService {
      * @param profileStatusResolver        资料状态解析器
      * @param businessIdGenerator          业务主键生成器
      * @param userCacheInvalidationService 缓存失效服务
+     * @param slowCallLogger               慢调用日志记录器
      */
     public UserPhotoServiceImpl(UserManager userManager,
                                 UserProfileManager userProfileManager,
@@ -68,7 +71,8 @@ public class UserPhotoServiceImpl implements UserPhotoService {
                                 PhotoObjectKeyValidator photoObjectKeyValidator,
                                 ProfileStatusResolver profileStatusResolver,
                                 BusinessIdGenerator businessIdGenerator,
-                                UserCacheInvalidationService userCacheInvalidationService) {
+                                UserCacheInvalidationService userCacheInvalidationService,
+                                SlowCallLogger slowCallLogger) {
         this.userManager = userManager;
         this.userProfileManager = userProfileManager;
         this.userPhotoManager = userPhotoManager;
@@ -76,6 +80,7 @@ public class UserPhotoServiceImpl implements UserPhotoService {
         this.profileStatusResolver = profileStatusResolver;
         this.businessIdGenerator = businessIdGenerator;
         this.userCacheInvalidationService = userCacheInvalidationService;
+        this.slowCallLogger = slowCallLogger;
     }
 
     /**
@@ -88,68 +93,82 @@ public class UserPhotoServiceImpl implements UserPhotoService {
     @Override
     @Transactional(rollbackFor = Exception.class)
     public BindPhotoResult bindUserPhoto(BindPhotoCommand command) {
-        // 1. 参数校验
-        validateBindCommand(command);
-        Long userId = command.getUserId();
-        PhotoType photoType = parsePhotoType(command.getPhotoType());
-        String objectKey = photoObjectKeyValidator.normalizeObjectKey(command.getObjectKey());
-        int sortOrder = command.getSortOrder() == null ? 0 : command.getSortOrder();
-
-        // 2. 查询用户并校验账号状态
-        UserEntity userEntity = userManager.findByUserId(userId);
-        if (userEntity == null) {
-            throw new UserBizException(UserErrorCode.USER_NOT_FOUND);
-        }
-        validateAccountStatus(userEntity.getAccountStatus());
-
-        // 3. 查询资料并校验 object key
-        UserProfileEntity profileEntity = userProfileManager.findByUserId(userId);
-        if (profileEntity == null) {
-            throw new UserBizException(UserErrorCode.PROFILE_NOT_FOUND);
-        }
-        photoObjectKeyValidator.validate(userId, photoType.name(), objectKey);
-
+        long startNano = System.nanoTime();
+        boolean success = true;
+        String errorCode = null;
+        Long userId = command == null ? null : command.getUserId();
         try {
-            // 4. 幂等检查：同一 user_id + object_key 不重复创建
-            UserPhotoEntity existing = userPhotoManager.findByUserIdAndObjectKey(userId, objectKey);
-            UserPhotoEntity photoEntity;
+            // 1. 参数校验
+            validateBindCommand(command);
+            userId = command.getUserId();
+            PhotoType photoType = parsePhotoType(command.getPhotoType());
+            String objectKey = photoObjectKeyValidator.normalizeObjectKey(command.getObjectKey());
+            int sortOrder = command.getSortOrder() == null ? 0 : command.getSortOrder();
 
-            if (photoType == PhotoType.AVATAR) {
-                // 5. 头像：禁用当前启用头像，创建或复用记录，更新 avatar_key 与 profile_status
-                userPhotoManager.disableCurrentAvatar(userId);
-                photoEntity = resolveOrCreatePhoto(existing, userId, photoType, objectKey, sortOrder, 1);
-                userProfileManager.updateAvatarKey(userId, objectKey);
-                profileEntity.setAvatarKey(objectKey);
-            } else {
-                // 6. 相册：检查数量上限，创建或复用记录，不更新 avatar_key
-                if (existing == null) {
-                    long albumCount = userPhotoManager.countEnabledByUserIdAndType(userId, PhotoType.ALBUM.name());
-                    if (albumCount >= MAX_ALBUM_PHOTOS) {
-                        throw new UserBizException(UserErrorCode.PHOTO_LIMIT_EXCEEDED);
-                    }
-                }
-                photoEntity = resolveOrCreatePhoto(existing, userId, photoType, objectKey, sortOrder, 1);
+            // 2. 查询用户并校验账号状态
+            UserEntity userEntity = userManager.findByUserId(userId);
+            if (userEntity == null) {
+                throw new UserBizException(UserErrorCode.USER_NOT_FOUND);
             }
+            validateAccountStatus(userEntity.getAccountStatus());
 
-            // 7. 计算并更新 profile_status
-            int profileCompleted = profileEntity.getProfileCompleted() == null ? 0 : profileEntity.getProfileCompleted();
-            String profileStatus = profileStatusResolver.resolve(profileCompleted, profileEntity.getAvatarKey());
-            userManager.updateProfileStatus(userId, profileStatus);
-            userEntity.setProfileStatus(profileStatus);
+            // 3. 查询资料并校验 object key
+            UserProfileEntity profileEntity = userProfileManager.findByUserId(userId);
+            if (profileEntity == null) {
+                throw new UserBizException(UserErrorCode.PROFILE_NOT_FOUND);
+            }
+            photoObjectKeyValidator.validate(userId, photoType.name(), objectKey);
 
-            // 8. 删除资料相关 Redis 缓存，失败不回滚主事务
-            userCacheInvalidationService.evictProfileCache(userId);
+            try {
+                // 4. 幂等检查：同一 user_id + object_key 不重复创建
+                UserPhotoEntity existing = userPhotoManager.findByUserIdAndObjectKey(userId, objectKey);
+                UserPhotoEntity photoEntity;
 
-            log.info("用户照片绑定成功, userId={}, photoType={}, photoId={}", userId, photoType.name(), photoEntity.getPhotoId());
+                if (photoType == PhotoType.AVATAR) {
+                    // 5. 头像：禁用当前启用头像，创建或复用记录，更新 avatar_key 与 profile_status
+                    userPhotoManager.disableCurrentAvatar(userId);
+                    photoEntity = resolveOrCreatePhoto(existing, userId, photoType, objectKey, sortOrder, 1);
+                    userProfileManager.updateAvatarKey(userId, objectKey);
+                    profileEntity.setAvatarKey(objectKey);
+                } else {
+                    // 6. 相册：检查数量上限，创建或复用记录，不更新 avatar_key
+                    if (existing == null) {
+                        long albumCount = userPhotoManager.countEnabledByUserIdAndType(userId, PhotoType.ALBUM.name());
+                        if (albumCount >= MAX_ALBUM_PHOTOS) {
+                            throw new UserBizException(UserErrorCode.PHOTO_LIMIT_EXCEEDED);
+                        }
+                    }
+                    photoEntity = resolveOrCreatePhoto(existing, userId, photoType, objectKey, sortOrder, 1);
+                }
 
-            BindPhotoResult result = new BindPhotoResult();
-            result.setPhoto(toUserPhotoVO(photoEntity));
-            result.setAvatarKey(profileEntity.getAvatarKey());
-            result.setProfileStatus(profileStatus);
-            return result;
-        } catch (DuplicateKeyException ex) {
-            log.warn("照片绑定唯一索引冲突, userId={}", userId);
-            throw new UserBizException(UserErrorCode.USER_CONCURRENT_CONFLICT);
+                // 7. 计算并更新 profile_status
+                int profileCompleted = profileEntity.getProfileCompleted() == null ? 0 : profileEntity.getProfileCompleted();
+                String profileStatus = profileStatusResolver.resolve(profileCompleted, profileEntity.getAvatarKey());
+                userManager.updateProfileStatus(userId, profileStatus);
+                userEntity.setProfileStatus(profileStatus);
+
+                // 8. 删除资料相关 Redis 缓存，失败不回滚主事务
+                userCacheInvalidationService.evictProfileCache(userId);
+
+                log.info("用户照片绑定成功, userId={}, photoType={}, photoId={}",
+                        userId, photoType.name(), photoEntity.getPhotoId());
+
+                BindPhotoResult result = new BindPhotoResult();
+                result.setPhoto(toUserPhotoVO(photoEntity));
+                result.setAvatarKey(profileEntity.getAvatarKey());
+                result.setProfileStatus(profileStatus);
+                return result;
+            } catch (DuplicateKeyException ex) {
+                log.warn("照片绑定唯一索引冲突, userId={}, errorCode={}",
+                        userId, UserErrorCode.USER_CONCURRENT_CONFLICT.getCode());
+                throw new UserBizException(UserErrorCode.USER_CONCURRENT_CONFLICT);
+            }
+        } catch (UserBizException ex) {
+            success = false;
+            errorCode = ex.getErrorCode().getCode();
+            throw ex;
+        } finally {
+            slowCallLogger.logIfSlow("bindUserPhoto", startNano, userId, success, errorCode);
         }
     }
 

@@ -19,6 +19,7 @@ import com.dating.user.service.impl.UserAuthServiceImpl;
 import com.dating.user.service.support.BusinessIdGenerator;
 import com.dating.user.service.support.IdentityHashService;
 import com.dating.user.service.support.PasswordHashService;
+import com.dating.user.service.support.SlowCallLogger;
 import com.dating.user.vo.LoginResult;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -98,7 +99,8 @@ class UserAuthServiceLoginTest {
                 userDeviceManager,
                 identityHashService,
                 passwordHashService,
-                businessIdGenerator
+                businessIdGenerator,
+                SlowCallLogger.forTest()
         );
     }
 

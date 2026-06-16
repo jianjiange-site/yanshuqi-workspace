@@ -22,6 +22,7 @@ import com.dating.user.service.UserAuthService;
 import com.dating.user.service.support.BusinessIdGenerator;
 import com.dating.user.service.support.IdentityHashService;
 import com.dating.user.service.support.PasswordHashService;
+import com.dating.user.service.support.SlowCallLogger;
 import com.dating.user.vo.LoginResult;
 import com.dating.user.vo.RegisterResult;
 import org.slf4j.Logger;
@@ -52,6 +53,7 @@ public class UserAuthServiceImpl implements UserAuthService {
     private final IdentityHashService identityHashService;
     private final PasswordHashService passwordHashService;
     private final BusinessIdGenerator businessIdGenerator;
+    private final SlowCallLogger slowCallLogger;
 
     /**
      * 构造用户认证业务服务。
@@ -64,6 +66,7 @@ public class UserAuthServiceImpl implements UserAuthService {
      * @param identityHashService      凭证归一化与哈希服务
      * @param passwordHashService      密码哈希服务
      * @param businessIdGenerator      业务主键生成器
+     * @param slowCallLogger           慢调用日志记录器
      */
     public UserAuthServiceImpl(UserManager userManager,
                                UserAuthIdentityManager userAuthIdentityManager,
@@ -72,7 +75,8 @@ public class UserAuthServiceImpl implements UserAuthService {
                                UserDeviceManager userDeviceManager,
                                IdentityHashService identityHashService,
                                PasswordHashService passwordHashService,
-                               BusinessIdGenerator businessIdGenerator) {
+                               BusinessIdGenerator businessIdGenerator,
+                               SlowCallLogger slowCallLogger) {
         this.userManager = userManager;
         this.userAuthIdentityManager = userAuthIdentityManager;
         this.userProfileManager = userProfileManager;
@@ -81,6 +85,7 @@ public class UserAuthServiceImpl implements UserAuthService {
         this.identityHashService = identityHashService;
         this.passwordHashService = passwordHashService;
         this.businessIdGenerator = businessIdGenerator;
+        this.slowCallLogger = slowCallLogger;
     }
 
     /**
@@ -93,60 +98,74 @@ public class UserAuthServiceImpl implements UserAuthService {
     @Override
     @Transactional(rollbackFor = Exception.class)
     public RegisterResult register(RegisterCommand command) {
-        // 1. 参数校验：检查登录凭证、密码强度、用户类型、注册来源是否合法
-        validateRegisterCommand(command);
-
-        // 2. 凭证归一化与哈希：生成 identity_hash，禁止在日志中输出明文凭证
-        String identityType = command.getIdentityType().trim().toUpperCase();
-        String normalizedIdentity = identityHashService.normalize(identityType, command.getIdentityValue());
-        String identityHash = identityHashService.hash(identityType, normalizedIdentity);
-        String maskedIdentityValue = identityHashService.maskForStorage(identityType, normalizedIdentity);
-
-        // 3. 幂等检查：同一个 identity_type + identity_hash 只能注册一次
-        UserAuthIdentityEntity existing = userAuthIdentityManager.findByIdentityTypeAndHash(identityType, identityHash);
-        if (existing != null) {
-            throw new UserBizException(UserErrorCode.IDENTITY_ALREADY_EXISTS);
-        }
-
-        // 4. 生成业务主键：user_id、auth_id、profile_id、setting_id
-        long userId = businessIdGenerator.nextId();
-        long authId = businessIdGenerator.nextId();
-        long profileId = businessIdGenerator.nextId();
-        long settingId = businessIdGenerator.nextId();
-
+        long startNano = System.nanoTime();
+        boolean success = true;
+        String errorCode = null;
+        Long resultUserId = null;
         try {
-            // 5. 创建 users：初始化 ACTIVE / INIT / token_version=1
-            UserEntity userEntity = buildUserEntity(command, userId);
-            userManager.createUser(userEntity);
+            // 1. 参数校验：检查登录凭证、密码强度、用户类型、注册来源是否合法
+            validateRegisterCommand(command);
 
-            // 6. 创建 user_auth_identities：保存 identity_hash 与 password_hash
-            String passwordHash = passwordHashService.hash(command.getPassword());
-            userAuthIdentityManager.createIdentity(
-                    authId,
-                    userId,
-                    identityType,
-                    maskedIdentityValue,
-                    identityHash,
-                    passwordHash
-            );
+            // 2. 凭证归一化与哈希：生成 identity_hash，禁止在日志中输出明文凭证
+            String identityType = command.getIdentityType().trim().toUpperCase();
+            String normalizedIdentity = identityHashService.normalize(identityType, command.getIdentityValue());
+            String identityHash = identityHashService.hash(identityType, normalizedIdentity);
+            String maskedIdentityValue = identityHashService.maskForStorage(identityType, normalizedIdentity);
 
-            // 7. 创建 user_profiles 默认记录
-            userProfileManager.createDefaultProfile(profileId, userId);
+            // 3. 幂等检查：同一个 identity_type + identity_hash 只能注册一次
+            UserAuthIdentityEntity existing = userAuthIdentityManager.findByIdentityTypeAndHash(identityType, identityHash);
+            if (existing != null) {
+                throw new UserBizException(UserErrorCode.IDENTITY_ALREADY_EXISTS);
+            }
 
-            // 8. 创建 user_settings 默认记录
-            userSettingsManager.createDefaultSettings(settingId, userId);
+            // 4. 生成业务主键：user_id、auth_id、profile_id、setting_id
+            long userId = businessIdGenerator.nextId();
+            long authId = businessIdGenerator.nextId();
+            long profileId = businessIdGenerator.nextId();
+            long settingId = businessIdGenerator.nextId();
 
-            // 9. 返回注册结果：不返回敏感字段，JWT 由 gateway 负责签发
-            RegisterResult result = new RegisterResult();
-            result.setUserId(userId);
-            result.setAccountStatus(userEntity.getAccountStatus());
-            result.setProfileStatus(userEntity.getProfileStatus());
-            result.setTokenVersion(userEntity.getTokenVersion());
-            log.info("用户注册成功, userId={}, identityType={}", userId, identityType);
-            return result;
-        } catch (DuplicateKeyException ex) {
-            log.warn("注册唯一索引冲突, identityType={}", identityType);
-            throw new UserBizException(UserErrorCode.USER_CONCURRENT_CONFLICT);
+            try {
+                // 5. 创建 users：初始化 ACTIVE / INIT / token_version=1
+                UserEntity userEntity = buildUserEntity(command, userId);
+                userManager.createUser(userEntity);
+
+                // 6. 创建 user_auth_identities：保存 identity_hash 与 password_hash
+                String passwordHash = passwordHashService.hash(command.getPassword());
+                userAuthIdentityManager.createIdentity(
+                        authId,
+                        userId,
+                        identityType,
+                        maskedIdentityValue,
+                        identityHash,
+                        passwordHash
+                );
+
+                // 7. 创建 user_profiles 默认记录
+                userProfileManager.createDefaultProfile(profileId, userId);
+
+                // 8. 创建 user_settings 默认记录
+                userSettingsManager.createDefaultSettings(settingId, userId);
+
+                // 9. 返回注册结果：不返回敏感字段，JWT 由 gateway 负责签发
+                RegisterResult result = new RegisterResult();
+                result.setUserId(userId);
+                result.setAccountStatus(userEntity.getAccountStatus());
+                result.setProfileStatus(userEntity.getProfileStatus());
+                result.setTokenVersion(userEntity.getTokenVersion());
+                resultUserId = userId;
+                log.info("用户注册成功, userId={}, identityType={}", userId, identityType);
+                return result;
+            } catch (DuplicateKeyException ex) {
+                log.warn("注册唯一索引冲突, identityType={}, errorCode={}",
+                        identityType, UserErrorCode.USER_CONCURRENT_CONFLICT.getCode());
+                throw new UserBizException(UserErrorCode.USER_CONCURRENT_CONFLICT);
+            }
+        } catch (UserBizException ex) {
+            success = false;
+            errorCode = ex.getErrorCode().getCode();
+            throw ex;
+        } finally {
+            slowCallLogger.logIfSlow("register", startNano, resultUserId, success, errorCode);
         }
     }
 
@@ -160,66 +179,80 @@ public class UserAuthServiceImpl implements UserAuthService {
     @Override
     @Transactional(rollbackFor = Exception.class)
     public LoginResult verifyLogin(LoginCommand command) {
-        // 1. 参数校验：检查登录凭证、密码、设备信息是否合法
-        validateLoginCommand(command);
-
-        // 2. 凭证归一化与哈希：与注册阶段使用同一套规则
-        String identityType = command.getIdentityType().trim().toUpperCase();
-        String normalizedIdentity = identityHashService.normalize(identityType, command.getIdentityValue());
-        String identityHash = identityHashService.hash(identityType, normalizedIdentity);
-
-        // 3. 查询登录凭证
-        UserAuthIdentityEntity authIdentity = userAuthIdentityManager.findByIdentityTypeAndHash(identityType, identityHash);
-        if (authIdentity == null) {
-            throw new UserBizException(UserErrorCode.IDENTITY_NOT_FOUND);
-        }
-
-        // 4. 密码校验：使用 BCrypt 比对，禁止明文比较
-        if (!passwordHashService.matches(command.getPassword(), authIdentity.getPasswordHash())) {
-            throw new UserBizException(UserErrorCode.PASSWORD_INVALID);
-        }
-
-        // 5. 查询用户主表
-        UserEntity userEntity = userManager.findByUserId(authIdentity.getUserId());
-        if (userEntity == null) {
-            throw new UserBizException(UserErrorCode.USER_NOT_FOUND);
-        }
-
-        // 6. 校验账号状态与用户类型
-        validateAccountStatus(userEntity.getAccountStatus());
-        validateLoginUserType(userEntity.getUserType());
-
-        // 7. 设备信息处理：push_token 转 hash，device_fingerprint 不打印明文
-        DeviceInfoCommand deviceInfo = command.getDeviceInfo();
-        String platform = deviceInfo.getPlatform().trim().toUpperCase();
-        String deviceFingerprint = normalizeDeviceFingerprint(deviceInfo.getDeviceFingerprint());
-        String pushTokenHash = identityHashService.hashPushToken(deviceInfo.getPushToken());
-        String appVersion = StringUtils.hasText(deviceInfo.getAppVersion()) ? deviceInfo.getAppVersion().trim() : null;
-
-        OffsetDateTime lastLoginAt = OffsetDateTime.now(ZoneOffset.UTC);
-        long userId = userEntity.getUserId();
-
+        long startNano = System.nanoTime();
+        boolean success = true;
+        String errorCode = null;
+        Long resultUserId = null;
         try {
-            // 8. upsert user_devices：同 user_id + device_fingerprint 不重复创建
-            upsertUserDevice(userId, platform, deviceFingerprint, pushTokenHash, appVersion, lastLoginAt);
+            // 1. 参数校验：检查登录凭证、密码、设备信息是否合法
+            validateLoginCommand(command);
 
-            // 9. 更新 users 与 auth_identity 的 last_login_at
-            userManager.updateLastLoginAt(userId, lastLoginAt);
-            userAuthIdentityManager.updateLastLoginAt(authIdentity.getAuthId(), lastLoginAt);
-        } catch (DuplicateKeyException ex) {
-            log.warn("登录设备唯一索引冲突, userId={}", userId);
-            throw new UserBizException(UserErrorCode.USER_CONCURRENT_CONFLICT);
+            // 2. 凭证归一化与哈希：与注册阶段使用同一套规则
+            String identityType = command.getIdentityType().trim().toUpperCase();
+            String normalizedIdentity = identityHashService.normalize(identityType, command.getIdentityValue());
+            String identityHash = identityHashService.hash(identityType, normalizedIdentity);
+
+            // 3. 查询登录凭证
+            UserAuthIdentityEntity authIdentity = userAuthIdentityManager.findByIdentityTypeAndHash(identityType, identityHash);
+            if (authIdentity == null) {
+                throw new UserBizException(UserErrorCode.IDENTITY_NOT_FOUND);
+            }
+
+            // 4. 密码校验：使用 BCrypt 比对，禁止明文比较
+            if (!passwordHashService.matches(command.getPassword(), authIdentity.getPasswordHash())) {
+                throw new UserBizException(UserErrorCode.PASSWORD_INVALID);
+            }
+
+            // 5. 查询用户主表
+            UserEntity userEntity = userManager.findByUserId(authIdentity.getUserId());
+            if (userEntity == null) {
+                throw new UserBizException(UserErrorCode.USER_NOT_FOUND);
+            }
+
+            // 6. 校验账号状态与用户类型
+            validateAccountStatus(userEntity.getAccountStatus());
+            validateLoginUserType(userEntity.getUserType());
+
+            // 7. 设备信息处理：push_token 转 hash，device_fingerprint 不打印明文
+            DeviceInfoCommand deviceInfo = command.getDeviceInfo();
+            String platform = deviceInfo.getPlatform().trim().toUpperCase();
+            String deviceFingerprint = normalizeDeviceFingerprint(deviceInfo.getDeviceFingerprint());
+            String pushTokenHash = identityHashService.hashPushToken(deviceInfo.getPushToken());
+            String appVersion = StringUtils.hasText(deviceInfo.getAppVersion()) ? deviceInfo.getAppVersion().trim() : null;
+
+            OffsetDateTime lastLoginAt = OffsetDateTime.now(ZoneOffset.UTC);
+            long userId = userEntity.getUserId();
+
+            try {
+                // 8. upsert user_devices：同 user_id + device_fingerprint 不重复创建
+                upsertUserDevice(userId, platform, deviceFingerprint, pushTokenHash, appVersion, lastLoginAt);
+
+                // 9. 更新 users 与 auth_identity 的 last_login_at
+                userManager.updateLastLoginAt(userId, lastLoginAt);
+                userAuthIdentityManager.updateLastLoginAt(authIdentity.getAuthId(), lastLoginAt);
+            } catch (DuplicateKeyException ex) {
+                log.warn("登录设备唯一索引冲突, userId={}, errorCode={}",
+                        userId, UserErrorCode.USER_CONCURRENT_CONFLICT.getCode());
+                throw new UserBizException(UserErrorCode.USER_CONCURRENT_CONFLICT);
+            }
+
+            // 10. 构建 LoginResult：不返回敏感字段，JWT 由 gateway 负责签发
+            LoginResult result = new LoginResult();
+            result.setUserId(userId);
+            result.setAccountStatus(userEntity.getAccountStatus());
+            result.setProfileStatus(userEntity.getProfileStatus());
+            result.setTokenVersion(userEntity.getTokenVersion());
+            result.setLastLoginAt(lastLoginAt);
+            resultUserId = userId;
+            log.info("用户登录校验成功, userId={}, identityType={}", userId, identityType);
+            return result;
+        } catch (UserBizException ex) {
+            success = false;
+            errorCode = ex.getErrorCode().getCode();
+            throw ex;
+        } finally {
+            slowCallLogger.logIfSlow("verifyLogin", startNano, resultUserId, success, errorCode);
         }
-
-        // 10. 构建 LoginResult：不返回敏感字段，JWT 由 gateway 负责签发
-        LoginResult result = new LoginResult();
-        result.setUserId(userId);
-        result.setAccountStatus(userEntity.getAccountStatus());
-        result.setProfileStatus(userEntity.getProfileStatus());
-        result.setTokenVersion(userEntity.getTokenVersion());
-        result.setLastLoginAt(lastLoginAt);
-        log.info("用户登录校验成功, userId={}, identityType={}", userId, identityType);
-        return result;
     }
 
     private void upsertUserDevice(long userId,

@@ -1,7 +1,9 @@
 package com.dating.user.service.impl;
 
+import com.dating.user.config.UserCacheProperties;
 import com.dating.user.constant.RedisKeyConstants;
 import com.dating.user.service.UserProfileCacheService;
+import com.dating.user.service.support.CacheSafeExecutor;
 import com.dating.user.vo.BasicUserProfileVO;
 import com.dating.user.vo.RecommendUserProfileVO;
 import com.dating.user.vo.UserAvailableVO;
@@ -11,7 +13,6 @@ import com.fasterxml.jackson.datatype.jsr310.JavaTimeModule;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.context.annotation.Profile;
-import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.stereotype.Service;
 
 import java.time.Duration;
@@ -28,19 +29,22 @@ public class UserProfileCacheServiceImpl implements UserProfileCacheService {
 
     private static final Logger log = LoggerFactory.getLogger(UserProfileCacheServiceImpl.class);
 
-    private static final Duration CACHE_TTL = Duration.ofMinutes(10);
+    private final CacheSafeExecutor cacheSafeExecutor;
 
-    private final StringRedisTemplate stringRedisTemplate;
+    private final UserCacheProperties userCacheProperties;
 
     private final ObjectMapper objectMapper;
 
     /**
      * 构造用户资料缓存服务。
      *
-     * @param stringRedisTemplate Redis 字符串模板
+     * @param cacheSafeExecutor    Redis 安全执行器
+     * @param userCacheProperties  用户缓存配置
      */
-    public UserProfileCacheServiceImpl(StringRedisTemplate stringRedisTemplate) {
-        this.stringRedisTemplate = stringRedisTemplate;
+    public UserProfileCacheServiceImpl(CacheSafeExecutor cacheSafeExecutor,
+                                       UserCacheProperties userCacheProperties) {
+        this.cacheSafeExecutor = cacheSafeExecutor;
+        this.userCacheProperties = userCacheProperties;
         this.objectMapper = new ObjectMapper().registerModule(new JavaTimeModule());
     }
 
@@ -112,26 +116,27 @@ public class UserProfileCacheServiceImpl implements UserProfileCacheService {
         if (userIds == null || userIds.isEmpty()) {
             return result;
         }
-        try {
-            List<String> keys = userIds.stream().map(id -> keyFn.apply(id)).toList();
-            List<String> values = stringRedisTemplate.opsForValue().multiGet(keys);
-            if (values == null) {
-                return result;
+        // 1. 批量读取 Redis，失败时降级为全部 cache miss
+        List<String> keys = userIds.stream().map(id -> keyFn.apply(id)).toList();
+        List<String> values = cacheSafeExecutor.safeMultiGet(keys);
+        if (values == null) {
+            return result;
+        }
+        // 2. 逐条反序列化，坏 key 删除后回源 DB
+        for (int i = 0; i < userIds.size(); i++) {
+            String json = values.get(i);
+            if (json == null || json.isBlank()) {
+                continue;
             }
-            for (int i = 0; i < userIds.size(); i++) {
-                String json = values.get(i);
-                if (json == null || json.isBlank()) {
-                    continue;
-                }
-                try {
-                    T value = objectMapper.readValue(json, type);
-                    result.put(userIds.get(i), value);
-                } catch (JsonProcessingException ex) {
-                    log.warn("用户资料缓存反序列化失败, userId={}", userIds.get(i));
-                }
+            Long userId = userIds.get(i);
+            String key = keyFn.apply(userId);
+            try {
+                T value = objectMapper.readValue(json, type);
+                result.put(userId, value);
+            } catch (JsonProcessingException ex) {
+                log.warn("用户资料缓存反序列化失败, userId={}, key={}", userId, key);
+                cacheSafeExecutor.safeDelete(key);
             }
-        } catch (Exception ex) {
-            log.warn("用户资料缓存批量读取失败", ex);
         }
         return result;
     }
@@ -140,15 +145,17 @@ public class UserProfileCacheServiceImpl implements UserProfileCacheService {
         if (values == null || values.isEmpty()) {
             return;
         }
+        Duration ttl = Duration.ofSeconds(userCacheProperties.getProfileTtlSeconds());
+        // 1. 逐条序列化并写入 Redis，失败不影响主流程
         for (Map.Entry<Long, T> entry : values.entrySet()) {
             if (entry.getKey() == null || entry.getValue() == null) {
                 continue;
             }
             try {
                 String json = objectMapper.writeValueAsString(entry.getValue());
-                stringRedisTemplate.opsForValue().set(keyFn.apply(entry.getKey()), json, CACHE_TTL);
-            } catch (Exception ex) {
-                log.warn("用户资料缓存写入失败, userId={}", entry.getKey(), ex);
+                cacheSafeExecutor.safeSet(keyFn.apply(entry.getKey()), json, ttl);
+            } catch (JsonProcessingException ex) {
+                log.warn("用户资料缓存序列化失败, userId={}", entry.getKey());
             }
         }
     }

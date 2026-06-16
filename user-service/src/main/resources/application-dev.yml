@@ -38,6 +38,9 @@ mybatis-plus:
 app:
   cache:
     key-prefix: ${REDIS_KEY_PREFIX:yanshuqi}
+  user-cache:
+    profile-ttl-seconds: 600
+    slow-call-threshold-ms: 500
   service:
     name: user-service
     redis-key-suffix: user
