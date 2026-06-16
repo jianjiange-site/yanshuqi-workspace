@@ -14,6 +14,7 @@ import com.dating.user.service.impl.UserProfileServiceImpl;
 import com.dating.user.service.support.ProfileCompletionCalculator;
 import com.dating.user.service.support.ProfileFieldValidator;
 import com.dating.user.service.support.ProfileJsonSupport;
+import com.dating.user.service.support.ProfileStatusResolver;
 import com.dating.user.vo.UserProfileDetailVO;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -64,6 +65,8 @@ class UserProfileServiceTest {
 
     private ProfileJsonSupport profileJsonSupport;
 
+    private ProfileStatusResolver profileStatusResolver;
+
     private UserProfileService userProfileService;
 
     /**
@@ -74,12 +77,14 @@ class UserProfileServiceTest {
         profileFieldValidator = new ProfileFieldValidator();
         profileCompletionCalculator = new ProfileCompletionCalculator();
         profileJsonSupport = new ProfileJsonSupport();
+        profileStatusResolver = new ProfileStatusResolver();
         userProfileService = new UserProfileServiceImpl(
                 userManager,
                 userProfileManager,
                 profileFieldValidator,
                 profileCompletionCalculator,
                 profileJsonSupport,
+                profileStatusResolver,
                 userCacheInvalidationService
         );
     }
@@ -165,11 +170,23 @@ class UserProfileServiceTest {
      */
     @Test
     void updateProfileShouldUpdateUsersProfileStatus() {
-        mockUpdateContext(AccountStatus.ACTIVE.name(), buildProfile(null, null));
+        mockUpdateContext(AccountStatus.ACTIVE.name(), buildProfile(null, ""));
 
         userProfileService.updateProfile(buildFullUpdateCommand());
 
         verify(userManager).updateProfileStatus(USER_ID, ProfileStatus.BASIC_DONE.name());
+    }
+
+    /**
+     * 已有 avatar_key 时更新完整资料不应降级为 BASIC_DONE。
+     */
+    @Test
+    void updateProfileShouldKeepPhotoDoneWhenAvatarExists() {
+        mockUpdateContext(AccountStatus.ACTIVE.name(), buildProfile(null, "avatar/1001/a.jpg"));
+
+        userProfileService.updateProfile(buildFullUpdateCommand());
+
+        verify(userManager).updateProfileStatus(USER_ID, ProfileStatus.PHOTO_DONE.name());
     }
 
     /**
@@ -313,6 +330,7 @@ class UserProfileServiceTest {
                 profileFieldValidator,
                 profileCompletionCalculator,
                 profileJsonSupport,
+                profileStatusResolver,
                 new UserCacheInvalidationService(stringRedisTemplate)
         );
         mockUpdateContext(AccountStatus.ACTIVE.name(), buildProfile(null, null));

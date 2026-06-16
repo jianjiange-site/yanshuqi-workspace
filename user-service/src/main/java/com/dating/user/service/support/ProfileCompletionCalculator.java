@@ -1,10 +1,7 @@
 package com.dating.user.service.support;
 
 import com.dating.user.constant.Gender;
-import com.dating.user.constant.ProfileStatus;
 import com.dating.user.dto.UpdateProfileCommand;
-import com.dating.user.exception.UserBizException;
-import com.dating.user.exception.UserErrorCode;
 import org.springframework.stereotype.Component;
 import org.springframework.util.StringUtils;
 
@@ -29,19 +26,15 @@ public class ProfileCompletionCalculator {
 
         private final int profileCompleted;
 
-        private final String profileStatus;
-
         /**
          * 构造完整度计算结果。
          *
          * @param profileScore     资料分数
          * @param profileCompleted 资料是否完成
-         * @param profileStatus    资料状态
          */
-        public CompletionResult(int profileScore, int profileCompleted, String profileStatus) {
+        public CompletionResult(int profileScore, int profileCompleted) {
             this.profileScore = profileScore;
             this.profileCompleted = profileCompleted;
-            this.profileStatus = profileStatus;
         }
 
         /**
@@ -60,15 +53,6 @@ public class ProfileCompletionCalculator {
          */
         public int getProfileCompleted() {
             return profileCompleted;
-        }
-
-        /**
-         * 获取资料状态。
-         *
-         * @return 资料状态
-         */
-        public String getProfileStatus() {
-            return profileStatus;
         }
     }
 
@@ -96,8 +80,7 @@ public class ProfileCompletionCalculator {
             score += 20;
         }
         int profileCompleted = score >= SCORE_THRESHOLD ? 1 : 0;
-        String profileStatus = score >= SCORE_THRESHOLD ? ProfileStatus.BASIC_DONE.name() : ProfileStatus.INIT.name();
-        return new CompletionResult(score, profileCompleted, profileStatus);
+        return new CompletionResult(score, profileCompleted);
     }
 
     private boolean hasValidGender(String gender) {

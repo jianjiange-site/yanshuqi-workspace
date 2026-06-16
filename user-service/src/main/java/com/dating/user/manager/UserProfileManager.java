@@ -6,6 +6,7 @@ import com.dating.user.mapper.UserProfileMapper;
 import org.springframework.context.annotation.Profile;
 import org.springframework.dao.DataAccessException;
 import org.springframework.stereotype.Component;
+import org.springframework.util.StringUtils;
 
 import java.time.OffsetDateTime;
 import java.time.ZoneOffset;
@@ -128,6 +129,28 @@ public class UserProfileManager {
         }
         entity.setUpdatedAt(OffsetDateTime.now(ZoneOffset.UTC));
         // 1. 按物理主键执行单表更新
+        userProfileMapper.updateById(entity);
+    }
+
+    /**
+     * 更新用户头像 object key。
+     *
+     * @param userId    用户业务主键
+     * @param avatarKey 头像 object key
+     * @throws IllegalArgumentException 当 userId 或 avatarKey 为空时
+     * @throws DataAccessException 当数据库访问失败时
+     * 业务约束：仅访问 user_center.user_profiles 单表；禁止 JOIN；禁止跨 schema；禁止跨服务数据库访问。
+     */
+    public void updateAvatarKey(Long userId, String avatarKey) {
+        if (userId == null || userId <= 0 || !StringUtils.hasText(avatarKey)) {
+            throw new IllegalArgumentException("userId 或 avatarKey 非法");
+        }
+        UserProfileEntity entity = findByUserId(userId);
+        if (entity == null || entity.getId() == null) {
+            throw new IllegalArgumentException("用户资料不存在");
+        }
+        entity.setAvatarKey(avatarKey.trim());
+        entity.setUpdatedAt(OffsetDateTime.now(ZoneOffset.UTC));
         userProfileMapper.updateById(entity);
     }
 }

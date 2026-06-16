@@ -8,12 +8,16 @@ option java_multiple_files = true;
 option java_package = "com.dating.user.grpc.proto";
 option java_outer_classname = "UserProfileServiceProto";
 
-// 用户资料 gRPC 服务（USER-04 仅实现 GetSelfProfile / UpdateProfile）。
+// 用户资料 gRPC 服务。
 service UserProfileService {
   // 查询本人资料。
   rpc GetSelfProfile(GetSelfProfileRequest) returns (GetSelfProfileResponse);
   // 更新本人基础资料，不处理头像/相册。
   rpc UpdateProfile(UpdateProfileRequest) returns (UpdateProfileResponse);
+  // 绑定头像或相册 object key，不上传文件。
+  rpc BindUserPhoto(BindUserPhotoRequest) returns (BindUserPhotoResponse);
+  // 查询用户照片列表。
+  rpc ListUserPhotos(ListUserPhotosRequest) returns (ListUserPhotosResponse);
 }
 
 // 查询本人资料请求。
@@ -63,4 +67,43 @@ message UpdateProfileRequest {
 // 更新资料响应。
 message UpdateProfileResponse {
   UserProfileDetail profile = 1;
+}
+
+// 绑定照片请求。
+message BindUserPhotoRequest {
+  int64 user_id = 1;
+  string photo_type = 2;
+  string object_key = 3;
+  int32 sort_order = 4;
+}
+
+// 绑定照片响应。
+message BindUserPhotoResponse {
+  UserPhoto photo = 1;
+  string avatar_key = 2;
+  string profile_status = 3;
+}
+
+// 查询照片列表请求。
+message ListUserPhotosRequest {
+  int64 user_id = 1;
+  string photo_type = 2;
+}
+
+// 查询照片列表响应。
+message ListUserPhotosResponse {
+  repeated UserPhoto photos = 1;
+}
+
+// 用户照片信息，仅 object key，不含完整 URL。
+message UserPhoto {
+  int64 photo_id = 1;
+  int64 user_id = 2;
+  string photo_type = 3;
+  string object_key = 4;
+  int32 sort_order = 5;
+  string review_status = 6;
+  int32 enabled = 7;
+  google.protobuf.Timestamp created_at = 8;
+  google.protobuf.Timestamp updated_at = 9;
 }

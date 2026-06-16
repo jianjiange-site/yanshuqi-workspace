@@ -13,6 +13,7 @@ import com.dating.user.service.UserProfileService;
 import com.dating.user.service.support.ProfileCompletionCalculator;
 import com.dating.user.service.support.ProfileFieldValidator;
 import com.dating.user.service.support.ProfileJsonSupport;
+import com.dating.user.service.support.ProfileStatusResolver;
 import com.dating.user.vo.UserProfileDetailVO;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -35,6 +36,7 @@ public class UserProfileServiceImpl implements UserProfileService {
     private final ProfileFieldValidator profileFieldValidator;
     private final ProfileCompletionCalculator profileCompletionCalculator;
     private final ProfileJsonSupport profileJsonSupport;
+    private final ProfileStatusResolver profileStatusResolver;
     private final UserCacheInvalidationService userCacheInvalidationService;
 
     /**
@@ -45,6 +47,7 @@ public class UserProfileServiceImpl implements UserProfileService {
      * @param profileFieldValidator        资料字段校验器
      * @param profileCompletionCalculator  资料完整度计算器
      * @param profileJsonSupport           资料 JSON 支持
+     * @param profileStatusResolver        资料状态解析器
      * @param userCacheInvalidationService 缓存失效服务
      */
     public UserProfileServiceImpl(UserManager userManager,
@@ -52,12 +55,14 @@ public class UserProfileServiceImpl implements UserProfileService {
                                     ProfileFieldValidator profileFieldValidator,
                                     ProfileCompletionCalculator profileCompletionCalculator,
                                     ProfileJsonSupport profileJsonSupport,
+                                    ProfileStatusResolver profileStatusResolver,
                                     UserCacheInvalidationService userCacheInvalidationService) {
         this.userManager = userManager;
         this.userProfileManager = userProfileManager;
         this.profileFieldValidator = profileFieldValidator;
         this.profileCompletionCalculator = profileCompletionCalculator;
         this.profileJsonSupport = profileJsonSupport;
+        this.profileStatusResolver = profileStatusResolver;
         this.userCacheInvalidationService = userCacheInvalidationService;
     }
 
@@ -121,9 +126,12 @@ public class UserProfileServiceImpl implements UserProfileService {
         applyProfileUpdates(profileEntity, command, completionResult);
         userProfileManager.updateProfile(profileEntity);
 
-        // 6. 更新 users.profile_status
-        userManager.updateProfileStatus(command.getUserId(), completionResult.getProfileStatus());
-        userEntity.setProfileStatus(completionResult.getProfileStatus());
+        // 6. 更新 users.profile_status，保留已有 avatar_key 对应的状态
+        String profileStatus = profileStatusResolver.resolve(
+                completionResult.getProfileCompleted(),
+                profileEntity.getAvatarKey());
+        userManager.updateProfileStatus(command.getUserId(), profileStatus);
+        userEntity.setProfileStatus(profileStatus);
 
         // 7. 删除资料相关 Redis 缓存，失败不回滚主事务
         userCacheInvalidationService.evictProfileCache(command.getUserId());

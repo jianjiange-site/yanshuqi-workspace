@@ -44,6 +44,21 @@ public enum UserErrorCode {
     /** 资料更新参数非法。 */
     PROFILE_UPDATE_INVALID("PROFILE_UPDATE_INVALID", "资料更新参数非法"),
 
+    /** 照片 object key 非法。 */
+    PHOTO_OBJECT_KEY_INVALID("PHOTO_OBJECT_KEY_INVALID", "照片 object key 非法"),
+
+    /** 照片审核未通过。 */
+    PHOTO_REVIEW_NOT_APPROVED("PHOTO_REVIEW_NOT_APPROVED", "照片审核未通过"),
+
+    /** 照片不存在。 */
+    PHOTO_NOT_FOUND("PHOTO_NOT_FOUND", "照片不存在"),
+
+    /** 照片类型非法。 */
+    PHOTO_TYPE_INVALID("PHOTO_TYPE_INVALID", "照片类型非法"),
+
+    /** 照片数量超限。 */
+    PHOTO_LIMIT_EXCEEDED("PHOTO_LIMIT_EXCEEDED", "照片数量超限"),
+
     /** 系统内部错误。 */
     INTERNAL_ERROR("INTERNAL_ERROR", "系统内部错误");
 

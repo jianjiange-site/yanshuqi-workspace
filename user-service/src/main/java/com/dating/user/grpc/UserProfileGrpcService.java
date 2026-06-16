@@ -1,13 +1,23 @@
 package com.dating.user.grpc;
 
+import com.dating.user.dto.BindPhotoCommand;
+import com.dating.user.dto.ListUserPhotosQuery;
 import com.dating.user.dto.UpdateProfileCommand;
+import com.dating.user.grpc.proto.BindUserPhotoRequest;
+import com.dating.user.grpc.proto.BindUserPhotoResponse;
 import com.dating.user.grpc.proto.GetSelfProfileRequest;
 import com.dating.user.grpc.proto.GetSelfProfileResponse;
+import com.dating.user.grpc.proto.ListUserPhotosRequest;
+import com.dating.user.grpc.proto.ListUserPhotosResponse;
 import com.dating.user.grpc.proto.UpdateProfileRequest;
 import com.dating.user.grpc.proto.UpdateProfileResponse;
+import com.dating.user.grpc.proto.UserPhoto;
 import com.dating.user.grpc.proto.UserProfileDetail;
 import com.dating.user.grpc.proto.UserProfileServiceGrpc;
+import com.dating.user.service.UserPhotoService;
 import com.dating.user.service.UserProfileService;
+import com.dating.user.vo.BindPhotoResult;
+import com.dating.user.vo.UserPhotoVO;
 import com.dating.user.vo.UserProfileDetailVO;
 import com.google.protobuf.Timestamp;
 import io.grpc.stub.StreamObserver;
@@ -26,14 +36,17 @@ import java.util.List;
 public class UserProfileGrpcService extends UserProfileServiceGrpc.UserProfileServiceImplBase {
 
     private final UserProfileService userProfileService;
+    private final UserPhotoService userPhotoService;
 
     /**
      * 构造用户资料 gRPC 服务。
      *
      * @param userProfileService 用户资料业务服务
+     * @param userPhotoService   用户照片业务服务
      */
-    public UserProfileGrpcService(UserProfileService userProfileService) {
+    public UserProfileGrpcService(UserProfileService userProfileService, UserPhotoService userPhotoService) {
         this.userProfileService = userProfileService;
+        this.userPhotoService = userPhotoService;
     }
 
     /**
@@ -44,9 +57,7 @@ public class UserProfileGrpcService extends UserProfileServiceGrpc.UserProfileSe
      */
     @Override
     public void getSelfProfile(GetSelfProfileRequest request, StreamObserver<GetSelfProfileResponse> responseObserver) {
-        // 1. 调用业务服务查询资料
         UserProfileDetailVO detail = userProfileService.getSelfProfile(request.getUserId());
-        // 2. 转换为 gRPC Response
         GetSelfProfileResponse response = GetSelfProfileResponse.newBuilder()
                 .setProfile(toUserProfileDetail(detail))
                 .build();
@@ -62,16 +73,67 @@ public class UserProfileGrpcService extends UserProfileServiceGrpc.UserProfileSe
      */
     @Override
     public void updateProfile(UpdateProfileRequest request, StreamObserver<UpdateProfileResponse> responseObserver) {
-        // 1. 将 gRPC Request 转换为 Service 层 UpdateProfileCommand
         UpdateProfileCommand command = toUpdateProfileCommand(request);
-        // 2. 调用业务服务更新资料
         UserProfileDetailVO detail = userProfileService.updateProfile(command);
-        // 3. 转换为 gRPC Response
         UpdateProfileResponse response = UpdateProfileResponse.newBuilder()
                 .setProfile(toUserProfileDetail(detail))
                 .build();
         responseObserver.onNext(response);
         responseObserver.onCompleted();
+    }
+
+    /**
+     * 处理绑定照片 gRPC 请求，仅做入参/出参转换。
+     *
+     * @param request          绑定请求
+     * @param responseObserver 响应观察者
+     */
+    @Override
+    public void bindUserPhoto(BindUserPhotoRequest request, StreamObserver<BindUserPhotoResponse> responseObserver) {
+        BindPhotoCommand command = toBindPhotoCommand(request);
+        BindPhotoResult result = userPhotoService.bindUserPhoto(command);
+        BindUserPhotoResponse response = BindUserPhotoResponse.newBuilder()
+                .setPhoto(toUserPhoto(result.getPhoto()))
+                .setAvatarKey(defaultString(result.getAvatarKey()))
+                .setProfileStatus(defaultString(result.getProfileStatus()))
+                .build();
+        responseObserver.onNext(response);
+        responseObserver.onCompleted();
+    }
+
+    /**
+     * 处理查询照片列表 gRPC 请求，仅做入参/出参转换。
+     *
+     * @param request          查询请求
+     * @param responseObserver 响应观察者
+     */
+    @Override
+    public void listUserPhotos(ListUserPhotosRequest request, StreamObserver<ListUserPhotosResponse> responseObserver) {
+        ListUserPhotosQuery query = toListUserPhotosQuery(request);
+        List<UserPhotoVO> photos = userPhotoService.listUserPhotos(query);
+        ListUserPhotosResponse.Builder builder = ListUserPhotosResponse.newBuilder();
+        for (UserPhotoVO photo : photos) {
+            builder.addPhotos(toUserPhoto(photo));
+        }
+        responseObserver.onNext(builder.build());
+        responseObserver.onCompleted();
+    }
+
+    private BindPhotoCommand toBindPhotoCommand(BindUserPhotoRequest request) {
+        BindPhotoCommand command = new BindPhotoCommand();
+        command.setUserId(request.getUserId());
+        command.setPhotoType(emptyToNull(request.getPhotoType()));
+        command.setObjectKey(emptyToNull(request.getObjectKey()));
+        command.setSortOrder(request.getSortOrder());
+        return command;
+    }
+
+    private ListUserPhotosQuery toListUserPhotosQuery(ListUserPhotosRequest request) {
+        ListUserPhotosQuery query = new ListUserPhotosQuery();
+        query.setUserId(request.getUserId());
+        query.setPhotoType(emptyToNull(request.getPhotoType()));
+        query.setIncludeDisabled(false);
+        return query;
     }
 
     private UpdateProfileCommand toUpdateProfileCommand(UpdateProfileRequest request) {
@@ -110,6 +172,24 @@ public class UserProfileGrpcService extends UserProfileServiceGrpc.UserProfileSe
         }
         if (detail.getUpdatedAt() != null) {
             builder.setUpdatedAt(toTimestamp(detail.getUpdatedAt().toInstant()));
+        }
+        return builder.build();
+    }
+
+    private UserPhoto toUserPhoto(UserPhotoVO vo) {
+        UserPhoto.Builder builder = UserPhoto.newBuilder()
+                .setPhotoId(vo.getPhotoId() == null ? 0L : vo.getPhotoId())
+                .setUserId(vo.getUserId() == null ? 0L : vo.getUserId())
+                .setPhotoType(defaultString(vo.getPhotoType()))
+                .setObjectKey(defaultString(vo.getObjectKey()))
+                .setSortOrder(vo.getSortOrder() == null ? 0 : vo.getSortOrder())
+                .setReviewStatus(defaultString(vo.getReviewStatus()))
+                .setEnabled(vo.getEnabled() == null ? 0 : vo.getEnabled());
+        if (vo.getCreatedAt() != null) {
+            builder.setCreatedAt(toTimestamp(vo.getCreatedAt().toInstant()));
+        }
+        if (vo.getUpdatedAt() != null) {
+            builder.setUpdatedAt(toTimestamp(vo.getUpdatedAt().toInstant()));
         }
         return builder.build();
     }

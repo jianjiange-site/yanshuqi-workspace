@@ -28,12 +28,13 @@ public class UserGrpcExceptionAdvice {
 
     private Status mapErrorCode(UserErrorCode errorCode) {
         return switch (errorCode) {
-            case USER_REQUEST_INVALID, INVALID_PARAMETER, PROFILE_UPDATE_INVALID -> Status.INVALID_ARGUMENT;
+            case USER_REQUEST_INVALID, INVALID_PARAMETER, PROFILE_UPDATE_INVALID,
+                    PHOTO_OBJECT_KEY_INVALID, PHOTO_TYPE_INVALID, PHOTO_LIMIT_EXCEEDED -> Status.INVALID_ARGUMENT;
             case PASSWORD_INVALID, IDENTITY_NOT_FOUND, AUTH_IDENTITY_NOT_FOUND -> Status.UNAUTHENTICATED;
             case USER_DISABLED, USER_BANNED, USER_DELETED -> Status.PERMISSION_DENIED;
             case IDENTITY_ALREADY_EXISTS -> Status.ALREADY_EXISTS;
             case USER_CONCURRENT_CONFLICT -> Status.ABORTED;
-            case USER_NOT_FOUND, PROFILE_NOT_FOUND -> Status.NOT_FOUND;
+            case USER_NOT_FOUND, PROFILE_NOT_FOUND, PHOTO_NOT_FOUND -> Status.NOT_FOUND;
             default -> Status.INTERNAL;
         };
     }
