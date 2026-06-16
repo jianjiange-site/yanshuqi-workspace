@@ -1,5 +1,7 @@
 # user-service gRPC 接口清单
 
+> **阅读顺序**：3 / 9
+
 本文档描述 user-service 当前已实现的全部 gRPC 接口。proto 定义见 `proto/user/`。
 
 ---
