@@ -1,17 +1,34 @@
 spring:
+  application:
+    name: user-service-test
   cloud:
     bootstrap:
       enabled: false
     nacos:
       discovery:
         enabled: false
+        server-addr: 127.0.0.1:8848
       config:
         enabled: false
+        server-addr: 127.0.0.1:8848
   autoconfigure:
     exclude:
       - org.springframework.boot.autoconfigure.jdbc.DataSourceAutoConfiguration
       - org.springframework.boot.autoconfigure.data.redis.RedisAutoConfiguration
       - org.springframework.boot.autoconfigure.flyway.FlywayAutoConfiguration
+      - com.alibaba.cloud.nacos.discovery.NacosDiscoveryAutoConfiguration
+      - com.alibaba.cloud.nacos.NacosConfigAutoConfiguration
+      - com.alibaba.cloud.nacos.endpoint.NacosDiscoveryEndpointAutoConfiguration
+
+app:
+  cache:
+    key-prefix: yanshuqi
+  service:
+    name: user-service
+    redis-key-suffix: user
+  infra:
+    redis-test-key: yanshuqi:user:infra:ping
+    redis-test-ttl-seconds: 60
 
 minio:
   endpoint: http://127.0.0.1:9000
