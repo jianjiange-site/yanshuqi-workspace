@@ -9,6 +9,10 @@ import org.springframework.dao.DataAccessException;
 import org.springframework.stereotype.Component;
 import org.springframework.util.StringUtils;
 
+import java.util.Collection;
+import java.util.Collections;
+import java.util.List;
+
 /**
  * 用户主表数据访问编排，仅封装 user_center.users 单表操作。
  */
@@ -144,5 +148,23 @@ public class UserManager {
                 .set(UserEntity::getProfileStatus, profileStatus.trim().toUpperCase())
                 .set(UserEntity::getUpdatedAt, now);
         userMapper.update(null, wrapper);
+    }
+
+    /**
+     * 根据用户业务主键列表批量查询用户主表记录。
+     *
+     * @param userIds 用户业务主键集合，不能为空
+     * @return 用户实体列表，无记录时返回空列表
+     * @throws IllegalArgumentException 当 userIds 为空时
+     * @throws DataAccessException 当数据库访问失败时
+     * 业务约束：仅访问 user_center.users 单表；禁止 JOIN；禁止跨 schema；禁止跨服务数据库访问。
+     */
+    public List<UserEntity> listByUserIds(Collection<Long> userIds) {
+        if (userIds == null || userIds.isEmpty()) {
+            return Collections.emptyList();
+        }
+        LambdaQueryWrapper<UserEntity> wrapper = new LambdaQueryWrapper<>();
+        wrapper.in(UserEntity::getUserId, userIds);
+        return userMapper.selectList(wrapper);
     }
 }

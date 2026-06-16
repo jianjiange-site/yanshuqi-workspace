@@ -2,6 +2,7 @@ package com.dating.user.manager;
 
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.baomidou.mybatisplus.core.conditions.update.LambdaUpdateWrapper;
+import com.dating.user.constant.PhotoReviewStatus;
 import com.dating.user.constant.PhotoType;
 import com.dating.user.entity.UserPhotoEntity;
 import com.dating.user.mapper.UserPhotoMapper;
@@ -12,7 +13,11 @@ import org.springframework.util.StringUtils;
 
 import java.time.OffsetDateTime;
 import java.time.ZoneOffset;
+import java.util.Collection;
+import java.util.Collections;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 
 /**
  * 用户照片表数据访问编排，仅封装 user_center.user_photos 单表操作。
@@ -239,5 +244,32 @@ public class UserPhotoManager {
      */
     public int updateById(UserPhotoEntity entity) {
         return userPhotoMapper.updateById(entity);
+    }
+
+    /**
+     * 批量查询用户已审核通过且启用的头像 object key。
+     *
+     * @param userIds 用户业务主键集合
+     * @return userId 到头像 object key 的映射，每个用户最多一条
+     * @throws DataAccessException 当数据库访问失败时
+     * 业务约束：仅访问 user_center.user_photos 单表；禁止 JOIN；禁止跨 schema；禁止跨服务数据库访问；
+     * 仅返回 photo_type=AVATAR、enabled=1、review_status=APPROVED 的记录。
+     */
+    public Map<Long, String> listEnabledApprovedAvatarsByUserIds(Collection<Long> userIds) {
+        if (userIds == null || userIds.isEmpty()) {
+            return Collections.emptyMap();
+        }
+        LambdaQueryWrapper<UserPhotoEntity> wrapper = new LambdaQueryWrapper<>();
+        wrapper.in(UserPhotoEntity::getUserId, userIds)
+                .eq(UserPhotoEntity::getPhotoType, PhotoType.AVATAR.name())
+                .eq(UserPhotoEntity::getEnabled, 1)
+                .eq(UserPhotoEntity::getReviewStatus, PhotoReviewStatus.APPROVED.name())
+                .orderByAsc(UserPhotoEntity::getSortOrder);
+        List<UserPhotoEntity> photos = userPhotoMapper.selectList(wrapper);
+        Map<Long, String> result = new HashMap<>();
+        for (UserPhotoEntity photo : photos) {
+            result.putIfAbsent(photo.getUserId(), photo.getObjectKey());
+        }
+        return result;
     }
 }

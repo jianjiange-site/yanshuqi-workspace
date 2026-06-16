@@ -59,6 +59,12 @@ public enum UserErrorCode {
     /** 照片数量超限。 */
     PHOTO_LIMIT_EXCEEDED("PHOTO_LIMIT_EXCEEDED", "照片数量超限"),
 
+    /** 批量查询用户数量超限。 */
+    USER_BATCH_SIZE_EXCEEDED("USER_BATCH_SIZE_EXCEEDED", "批量查询用户数量超限"),
+
+    /** 用户资料批量查询参数非法。 */
+    USER_PROFILE_QUERY_INVALID("USER_PROFILE_QUERY_INVALID", "用户资料批量查询参数非法"),
+
     /** 系统内部错误。 */
     INTERNAL_ERROR("INTERNAL_ERROR", "系统内部错误");
 

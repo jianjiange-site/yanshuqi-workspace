@@ -18,6 +18,12 @@ service UserProfileService {
   rpc BindUserPhoto(BindUserPhotoRequest) returns (BindUserPhotoResponse);
   // 查询用户照片列表。
   rpc ListUserPhotos(ListUserPhotosRequest) returns (ListUserPhotosResponse);
+  // 批量查询用户基础资料，供下游服务展示。
+  rpc BatchGetBasicProfiles(BatchGetBasicProfilesRequest) returns (BatchGetBasicProfilesResponse);
+  // 批量查询用户推荐展示资料，不做推荐算法。
+  rpc BatchGetRecommendProfiles(BatchGetRecommendProfilesRequest) returns (BatchGetRecommendProfilesResponse);
+  // 批量检查用户是否可用。
+  rpc CheckUserAvailable(CheckUserAvailableRequest) returns (CheckUserAvailableResponse);
 }
 
 // 查询本人资料请求。
@@ -106,4 +112,78 @@ message UserPhoto {
   int32 enabled = 7;
   google.protobuf.Timestamp created_at = 8;
   google.protobuf.Timestamp updated_at = 9;
+}
+
+// 批量查询基础资料请求。
+message BatchGetBasicProfilesRequest {
+  repeated int64 user_ids = 1;
+  bool include_unavailable = 2;
+}
+
+// 批量查询基础资料响应。
+message BatchGetBasicProfilesResponse {
+  repeated BasicUserProfile profiles = 1;
+}
+
+// 用户基础资料，供列表/卡片展示。
+message BasicUserProfile {
+  int64 user_id = 1;
+  string nickname = 2;
+  string gender = 3;
+  string city_code = 4;
+  string avatar_key = 5;
+  string profile_status = 6;
+  string account_status = 7;
+  bool available = 8;
+  string unavailable_reason = 9;
+}
+
+// 批量查询推荐展示资料请求。
+message BatchGetRecommendProfilesRequest {
+  repeated int64 user_ids = 1;
+  bool include_unavailable = 2;
+}
+
+// 批量查询推荐展示资料响应。
+message BatchGetRecommendProfilesResponse {
+  repeated RecommendUserProfile profiles = 1;
+}
+
+// 用户推荐展示资料，不含敏感字段。
+message RecommendUserProfile {
+  int64 user_id = 1;
+  string user_type = 2;
+  string gender = 3;
+  string birth_date = 4;
+  string country_code = 5;
+  string city_code = 6;
+  repeated string language_codes = 7;
+  repeated string interests = 8;
+  string bio = 9;
+  string avatar_key = 10;
+  int32 profile_score = 11;
+  int32 profile_completed = 12;
+  string profile_status = 13;
+  string account_status = 14;
+  bool available = 15;
+  string unavailable_reason = 16;
+}
+
+// 批量检查用户可用性请求。
+message CheckUserAvailableRequest {
+  repeated int64 user_ids = 1;
+}
+
+// 批量检查用户可用性响应。
+message CheckUserAvailableResponse {
+  repeated UserAvailableResult results = 1;
+}
+
+// 单个用户可用性结果。
+message UserAvailableResult {
+  int64 user_id = 1;
+  bool available = 2;
+  string account_status = 3;
+  string profile_status = 4;
+  string reason = 5;
 }

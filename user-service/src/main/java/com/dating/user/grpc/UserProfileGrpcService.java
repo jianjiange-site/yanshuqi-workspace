@@ -1,22 +1,38 @@
 package com.dating.user.grpc;
 
+import com.dating.user.dto.BatchGetBasicProfilesQuery;
+import com.dating.user.dto.BatchGetRecommendProfilesQuery;
 import com.dating.user.dto.BindPhotoCommand;
+import com.dating.user.dto.CheckUserAvailableQuery;
 import com.dating.user.dto.ListUserPhotosQuery;
 import com.dating.user.dto.UpdateProfileCommand;
+import com.dating.user.grpc.proto.BatchGetBasicProfilesRequest;
+import com.dating.user.grpc.proto.BatchGetBasicProfilesResponse;
+import com.dating.user.grpc.proto.BatchGetRecommendProfilesRequest;
+import com.dating.user.grpc.proto.BatchGetRecommendProfilesResponse;
+import com.dating.user.grpc.proto.BasicUserProfile;
 import com.dating.user.grpc.proto.BindUserPhotoRequest;
 import com.dating.user.grpc.proto.BindUserPhotoResponse;
+import com.dating.user.grpc.proto.CheckUserAvailableRequest;
+import com.dating.user.grpc.proto.CheckUserAvailableResponse;
 import com.dating.user.grpc.proto.GetSelfProfileRequest;
 import com.dating.user.grpc.proto.GetSelfProfileResponse;
 import com.dating.user.grpc.proto.ListUserPhotosRequest;
 import com.dating.user.grpc.proto.ListUserPhotosResponse;
+import com.dating.user.grpc.proto.RecommendUserProfile;
 import com.dating.user.grpc.proto.UpdateProfileRequest;
 import com.dating.user.grpc.proto.UpdateProfileResponse;
+import com.dating.user.grpc.proto.UserAvailableResult;
 import com.dating.user.grpc.proto.UserPhoto;
 import com.dating.user.grpc.proto.UserProfileDetail;
 import com.dating.user.grpc.proto.UserProfileServiceGrpc;
 import com.dating.user.service.UserPhotoService;
+import com.dating.user.service.UserProfileQueryService;
 import com.dating.user.service.UserProfileService;
+import com.dating.user.vo.BasicUserProfileVO;
 import com.dating.user.vo.BindPhotoResult;
+import com.dating.user.vo.RecommendUserProfileVO;
+import com.dating.user.vo.UserAvailableVO;
 import com.dating.user.vo.UserPhotoVO;
 import com.dating.user.vo.UserProfileDetailVO;
 import com.google.protobuf.Timestamp;
@@ -37,16 +53,21 @@ public class UserProfileGrpcService extends UserProfileServiceGrpc.UserProfileSe
 
     private final UserProfileService userProfileService;
     private final UserPhotoService userPhotoService;
+    private final UserProfileQueryService userProfileQueryService;
 
     /**
      * 构造用户资料 gRPC 服务。
      *
-     * @param userProfileService 用户资料业务服务
-     * @param userPhotoService   用户照片业务服务
+     * @param userProfileService      用户资料业务服务
+     * @param userPhotoService        用户照片业务服务
+     * @param userProfileQueryService 用户资料批量查询服务
      */
-    public UserProfileGrpcService(UserProfileService userProfileService, UserPhotoService userPhotoService) {
+    public UserProfileGrpcService(UserProfileService userProfileService,
+                                  UserPhotoService userPhotoService,
+                                  UserProfileQueryService userProfileQueryService) {
         this.userProfileService = userProfileService;
         this.userPhotoService = userPhotoService;
+        this.userProfileQueryService = userProfileQueryService;
     }
 
     /**
@@ -117,6 +138,113 @@ public class UserProfileGrpcService extends UserProfileServiceGrpc.UserProfileSe
         }
         responseObserver.onNext(builder.build());
         responseObserver.onCompleted();
+    }
+
+    /**
+     * 处理批量查询基础资料 gRPC 请求，仅做入参/出参转换。
+     *
+     * @param request          批量查询请求
+     * @param responseObserver 响应观察者
+     */
+    @Override
+    public void batchGetBasicProfiles(BatchGetBasicProfilesRequest request,
+                                      StreamObserver<BatchGetBasicProfilesResponse> responseObserver) {
+        BatchGetBasicProfilesQuery query = new BatchGetBasicProfilesQuery();
+        query.setUserIds(request.getUserIdsList());
+        query.setIncludeUnavailable(request.getIncludeUnavailable());
+        List<BasicUserProfileVO> profiles = userProfileQueryService.batchGetBasicProfiles(query);
+        BatchGetBasicProfilesResponse.Builder builder = BatchGetBasicProfilesResponse.newBuilder();
+        for (BasicUserProfileVO profile : profiles) {
+            builder.addProfiles(toBasicUserProfile(profile));
+        }
+        responseObserver.onNext(builder.build());
+        responseObserver.onCompleted();
+    }
+
+    /**
+     * 处理批量查询推荐展示资料 gRPC 请求，仅做入参/出参转换。
+     *
+     * @param request          批量查询请求
+     * @param responseObserver 响应观察者
+     */
+    @Override
+    public void batchGetRecommendProfiles(BatchGetRecommendProfilesRequest request,
+                                          StreamObserver<BatchGetRecommendProfilesResponse> responseObserver) {
+        BatchGetRecommendProfilesQuery query = new BatchGetRecommendProfilesQuery();
+        query.setUserIds(request.getUserIdsList());
+        query.setIncludeUnavailable(request.getIncludeUnavailable());
+        List<RecommendUserProfileVO> profiles = userProfileQueryService.batchGetRecommendProfiles(query);
+        BatchGetRecommendProfilesResponse.Builder builder = BatchGetRecommendProfilesResponse.newBuilder();
+        for (RecommendUserProfileVO profile : profiles) {
+            builder.addProfiles(toRecommendUserProfile(profile));
+        }
+        responseObserver.onNext(builder.build());
+        responseObserver.onCompleted();
+    }
+
+    /**
+     * 处理批量检查用户可用性 gRPC 请求，仅做入参/出参转换。
+     *
+     * @param request          检查请求
+     * @param responseObserver 响应观察者
+     */
+    @Override
+    public void checkUserAvailable(CheckUserAvailableRequest request,
+                                   StreamObserver<CheckUserAvailableResponse> responseObserver) {
+        CheckUserAvailableQuery query = new CheckUserAvailableQuery();
+        query.setUserIds(request.getUserIdsList());
+        List<UserAvailableVO> results = userProfileQueryService.checkUserAvailable(query);
+        CheckUserAvailableResponse.Builder builder = CheckUserAvailableResponse.newBuilder();
+        for (UserAvailableVO result : results) {
+            builder.addResults(toUserAvailableResult(result));
+        }
+        responseObserver.onNext(builder.build());
+        responseObserver.onCompleted();
+    }
+
+    private BasicUserProfile toBasicUserProfile(BasicUserProfileVO vo) {
+        return BasicUserProfile.newBuilder()
+                .setUserId(vo.getUserId() == null ? 0L : vo.getUserId())
+                .setNickname(defaultString(vo.getNickname()))
+                .setGender(defaultString(vo.getGender()))
+                .setCityCode(defaultString(vo.getCityCode()))
+                .setAvatarKey(defaultString(vo.getAvatarKey()))
+                .setProfileStatus(defaultString(vo.getProfileStatus()))
+                .setAccountStatus(defaultString(vo.getAccountStatus()))
+                .setAvailable(vo.isAvailable())
+                .setUnavailableReason(defaultString(vo.getUnavailableReason()))
+                .build();
+    }
+
+    private RecommendUserProfile toRecommendUserProfile(RecommendUserProfileVO vo) {
+        return RecommendUserProfile.newBuilder()
+                .setUserId(vo.getUserId() == null ? 0L : vo.getUserId())
+                .setUserType(defaultString(vo.getUserType()))
+                .setGender(defaultString(vo.getGender()))
+                .setBirthDate(vo.getBirthDate() == null ? "" : vo.getBirthDate().toString())
+                .setCountryCode(defaultString(vo.getCountryCode()))
+                .setCityCode(defaultString(vo.getCityCode()))
+                .addAllLanguageCodes(defaultList(vo.getLanguageCodes()))
+                .addAllInterests(defaultList(vo.getInterests()))
+                .setBio(defaultString(vo.getBio()))
+                .setAvatarKey(defaultString(vo.getAvatarKey()))
+                .setProfileScore(vo.getProfileScore() == null ? 0 : vo.getProfileScore())
+                .setProfileCompleted(vo.getProfileCompleted() == null ? 0 : vo.getProfileCompleted())
+                .setProfileStatus(defaultString(vo.getProfileStatus()))
+                .setAccountStatus(defaultString(vo.getAccountStatus()))
+                .setAvailable(vo.isAvailable())
+                .setUnavailableReason(defaultString(vo.getUnavailableReason()))
+                .build();
+    }
+
+    private UserAvailableResult toUserAvailableResult(UserAvailableVO vo) {
+        return UserAvailableResult.newBuilder()
+                .setUserId(vo.getUserId() == null ? 0L : vo.getUserId())
+                .setAvailable(vo.isAvailable())
+                .setAccountStatus(defaultString(vo.getAccountStatus()))
+                .setProfileStatus(defaultString(vo.getProfileStatus()))
+                .setReason(defaultString(vo.getReason()))
+                .build();
     }
 
     private BindPhotoCommand toBindPhotoCommand(BindUserPhotoRequest request) {

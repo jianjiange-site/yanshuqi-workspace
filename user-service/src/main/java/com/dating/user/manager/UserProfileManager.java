@@ -10,6 +10,9 @@ import org.springframework.util.StringUtils;
 
 import java.time.OffsetDateTime;
 import java.time.ZoneOffset;
+import java.util.Collection;
+import java.util.Collections;
+import java.util.List;
 
 /**
  * 用户资料表数据访问编排，仅封装 user_center.user_profiles 单表操作。
@@ -152,5 +155,23 @@ public class UserProfileManager {
         entity.setAvatarKey(avatarKey.trim());
         entity.setUpdatedAt(OffsetDateTime.now(ZoneOffset.UTC));
         userProfileMapper.updateById(entity);
+    }
+
+    /**
+     * 根据用户业务主键列表批量查询用户资料记录。
+     *
+     * @param userIds 用户业务主键集合，不能为空
+     * @return 用户资料实体列表，无记录时返回空列表
+     * @throws IllegalArgumentException 当 userIds 为空时
+     * @throws DataAccessException 当数据库访问失败时
+     * 业务约束：仅访问 user_center.user_profiles 单表；禁止 JOIN；禁止跨 schema；禁止跨服务数据库访问。
+     */
+    public List<UserProfileEntity> listByUserIds(Collection<Long> userIds) {
+        if (userIds == null || userIds.isEmpty()) {
+            return Collections.emptyList();
+        }
+        LambdaQueryWrapper<UserProfileEntity> wrapper = new LambdaQueryWrapper<>();
+        wrapper.in(UserProfileEntity::getUserId, userIds);
+        return userProfileMapper.selectList(wrapper);
     }
 }
