@@ -1,0 +1,1514 @@
+# user-service 模块技术方案 v1.0
+
+## 1. 模块定位
+
+`user-service` 是 ChatVibe / Dating App 的用户域服务，负责用户账号、用户基础档案、用户状态、用户资料完整度、头像 / 相册 object key、设备信息和用户偏好设置。
+
+它是整个系统的基础主数据服务，后续 `match-service`、`im-service`、`post-service`、`payment-service`、`ai-chat` 都会通过 gRPC 查询用户基础信息，但不能直接访问 `user-service` 的数据库。
+
+---
+
+## 2. 本模块核心目标
+
+### 2.1 业务目标
+
+user-service 要解决这些问题：
+
+1. 用户是谁。
+2. 用户是 BH 真人用户，还是 DH 数字人。
+3. 用户是否可以登录。
+4. 用户资料是否完善。
+5. 用户头像、相册 object key 存在哪里。
+6. 其他服务如何批量查询用户基础资料。
+7. 推荐、聊天、Feed、AI Chat 如何拿到用户必要信息。
+8. 用户状态变更后，其他服务如何感知或重新查询。
+
+### 2.2 技术目标
+
+1. 建立 `user_center` schema。
+2. 建立用户域核心表。
+3. 实现单服务内分层：Controller / gRPC / Service / Manager / Mapper。
+4. 所有持久层查询禁止多表 JOIN。
+5. 所有跨服务调用必须走 gRPC。
+6. 所有 Redis key 使用 `yanshuqi:user:` 前缀。
+7. 所有 public 方法写中文 Javadoc。
+8. 核心业务逻辑块使用编号中文注释。
+9. 数据库表和字段使用 SQL `COMMENT` 注释。
+10. 不泄露密码、手机号、邮箱、token、设备指纹等敏感信息。
+
+---
+
+## 3. 本模块负责什么
+
+user-service 负责：
+
+1. 用户账号创建。
+2. 登录凭证校验。
+3. 用户基础状态维护。
+4. 用户基础资料维护。
+5. 用户头像 / 相册 object key 绑定。
+6. 用户设备记录。
+7. 用户偏好设置。
+8. 用户资料完整度判断。
+9. 批量查询用户基础展示信息。
+10. 查询用户是否存在、是否可用、是否封禁。
+11. 为 match-service 提供推荐所需的用户属性。
+12. 为 im-service 提供昵称、头像、用户类型等展示信息。
+13. 为 post-service 提供发帖人展示信息。
+14. 为 ai-chat 提供用户基础画像，不提供完整隐私数据。
+
+---
+
+## 4. 本模块不负责什么
+
+user-service 不负责：
+
+1. 不负责 JWT 签发。JWT 建议由 `mobile-gateway` 统一签发和校验。
+2. 不负责推荐算法。推荐由 `match-service` 负责。
+3. 不负责匹配关系。匹配由 `match-service` 负责。
+4. 不负责聊天会话。聊天由 `im-service` 封装 OpenIM。
+5. 不负责金币账户。金币由 `payment-service` 负责。
+6. 不负责 Feed 内容。内容由 `post-service` 负责。
+7. 不负责 AI 对话。AI 回复由 `ai-chat` 负责。
+8. 不负责 OpenIM 用户注册、OpenIM token、LiveKit token。
+9. 不负责对象文件真实上传。MinIO 上传签名或对象上传由对应 owner service 设计，user-service 只保存头像 / 相册 object key。
+10. 不直接访问其他服务数据库、Redis key、MinIO bucket。
+
+---
+
+## 5. 与其他模块的关系
+
+### 5.1 mobile-gateway → user-service
+
+App 所有用户相关请求先进入 `mobile-gateway`，再由 gateway 通过 gRPC 调用 user-service。
+
+典型链路：
+
+```text
+App
+→ mobile-gateway REST
+→ user-service gRPC
+→ user-service Service
+→ user-service Manager
+→ user-service Mapper
+→ PostgreSQL user_center
+```
+
+gateway 只负责：
+
+1. REST 入参校验。
+2. 鉴权。
+3. 调用 user-service gRPC。
+4. 返回统一 Result。
+
+gateway 不写用户业务逻辑，不直接查用户表。
+
+---
+
+### 5.2 match-service → user-service
+
+match-service 需要查询用户基础属性，用于推荐和过滤。
+
+需要的数据：
+
+1. user_id。
+2. user_type：BH / DH。
+3. gender。
+4. birth_date / age。
+5. country_code / city_code。
+6. profile_completed。
+7. account_status。
+8. discoverable。
+9. avatar_key。
+10. interests / tags。
+
+调用方式：
+
+```text
+match-service
+→ user-service gRPC BatchGetRecommendProfiles
+→ user-service 查询 user_center
+→ 返回推荐所需字段
+```
+
+match-service 禁止直接查询 `user_center` schema。
+
+---
+
+### 5.3 im-service → user-service
+
+im-service 需要查询聊天展示资料。
+
+需要的数据：
+
+1. user_id。
+2. nickname。
+3. avatar_key。
+4. user_type。
+5. account_status。
+
+调用方式：
+
+```text
+im-service
+→ user-service gRPC BatchGetBasicProfiles
+→ 返回昵称、头像、用户类型
+```
+
+OpenIM 用户注册、OpenIM token、消息发送仍然由 im-service 负责。
+
+---
+
+### 5.4 post-service → user-service
+
+post-service 展示 Feed 时需要查询发帖人信息。
+
+需要的数据：
+
+1. user_id。
+2. nickname。
+3. avatar_key。
+4. user_type。
+5. account_status。
+
+调用方式：
+
+```text
+post-service
+→ user-service gRPC BatchGetBasicProfiles
+→ post-service 拼装 Feed VO
+```
+
+post-service 只保存 post 自己的数据，不冗余完整用户资料。
+
+---
+
+### 5.5 payment-service → user-service
+
+payment-service 在金币账户初始化、订阅查询时可能需要确认用户是否存在、是否有效。
+
+需要的数据：
+
+1. user_id。
+2. account_status。
+3. user_type。
+
+调用方式：
+
+```text
+payment-service
+→ user-service gRPC CheckUserAvailable
+```
+
+payment-service 不查用户表。
+
+---
+
+### 5.6 ai-chat → user-service
+
+ai-chat 需要用户画像生成数字人回复。
+
+需要的数据：
+
+1. 用户基础资料。
+2. 用户性别、年龄段。
+3. 用户地区。
+4. 用户兴趣标签。
+5. 对方是否 DH。
+6. DH 的基础展示资料。
+
+调用方式：
+
+```text
+ai-chat
+→ user-service gRPC GetUserProfileForAI
+```
+
+ai-chat 不直接访问 PostgreSQL，不直接访问 user-service 数据库。
+
+---
+
+## 6. 核心业务问题分析
+
+### 6.1 用户身份问题
+
+需要明确：
+
+1. 系统内部用户主键使用 `user_id`，不是数据库自增 `id`。
+2. `id` 只用于数据库物理主键。
+3. 跨服务、接口返回、日志追踪都使用 `user_id`。
+4. `user_id` 可使用雪花 ID 或 UUID，建议使用雪花 ID，便于排序和排查。
+
+---
+
+### 6.2 BH / DH 用户类型问题
+
+Dating App 中用户分两类：
+
+| 类型 | 含义    | 特点                                   |
+| -- | ----- | ------------------------------------ |
+| BH | 真人用户  | App 真实用户，可登录、可充值、可聊天                 |
+| DH | 数字人用户 | 系统生成或运营配置，不能像真人一样登录，聊天由 ai-chat 生成回复 |
+
+设计原则：
+
+1. `users.user_type` 统一标识用户类型。
+2. BH / DH 共用基础档案模型。
+3. DH 的复杂人格、Agent prompt、对话策略不放在 user-service，放到 ai-chat 或后续独立 persona 配置中。
+4. match-service 推荐时可以同时召回 BH / DH。
+5. im-service 判断对方是 DH 后，再触发 ai-chat。
+
+---
+
+### 6.3 注册登录问题
+
+注册登录要区分三层：
+
+1. 账号凭证：手机号、邮箱、第三方账号、设备号。
+2. 用户主表：系统内部用户。
+3. 用户资料：昵称、性别、生日、地区、头像等。
+
+不要把所有字段都塞进一张 users 表。
+
+注册流程建议：
+
+```text
+App 提交注册信息
+→ mobile-gateway 校验 REST 入参
+→ user-service 校验账号是否已存在
+→ 创建 users
+→ 创建 user_auth_identities
+→ 创建 user_profiles 初始记录
+→ 创建 user_settings 默认记录
+→ 返回 user_id 和账号状态
+→ mobile-gateway 签发 JWT
+```
+
+登录流程建议：
+
+```text
+App 提交登录凭证
+→ mobile-gateway 调 user-service 校验凭证
+→ user-service 校验身份、密码、账号状态
+→ user-service 记录登录设备和 last_login_at
+→ 返回 user_id、account_status、token_version
+→ mobile-gateway 签发 JWT
+```
+
+JWT 密钥不放在 user-service。
+
+---
+
+### 6.4 用户资料完整度问题
+
+资料完整度影响：
+
+1. 是否可以进入推荐。
+2. 是否可以被别人看到。
+3. 是否可以聊天。
+4. 是否可以发布内容。
+
+建议字段：
+
+```text
+users.profile_status
+user_profiles.profile_completed
+user_profiles.profile_score
+```
+
+状态建议：
+
+| 状态         | 含义        |
+| ---------- | --------- |
+| INIT       | 刚注册，未填写资料 |
+| BASIC_DONE | 基础资料完成    |
+| PHOTO_DONE | 已上传头像     |
+| COMPLETED  | 可进入推荐和聊天  |
+| BLOCKED    | 资料异常或风控限制 |
+
+---
+
+### 6.5 头像 / 相册问题
+
+user-service 只保存 object key，不保存完整 URL。
+
+原因：
+
+1. CDN 域名可能变。
+2. bucket 可能变。
+3. 不同环境 endpoint 不同。
+4. 敏感资源后续可能需要 presigned URL。
+5. 存 object key 更稳定。
+
+示例：
+
+```text
+avatar/{user_id}/202606/{uuid}.jpg
+album/{user_id}/202606/{uuid}.jpg
+```
+
+user-service 要校验：
+
+1. object key 必须属于当前 user_id。
+2. avatar 类型只能有一个当前生效头像。
+3. album 可以多张，但需要 sort_order。
+4. 图片审核状态未通过时，不应对外展示。
+
+---
+
+### 6.6 账号状态问题
+
+用户状态要支持：
+
+| 状态       | 含义      |
+| -------- | ------- |
+| ACTIVE   | 正常      |
+| DISABLED | 用户主动停用  |
+| BANNED   | 平台封禁    |
+| DELETED  | 注销或逻辑删除 |
+
+状态影响：
+
+1. BANNED 用户不能登录。
+2. DELETED 用户不能登录。
+3. DISABLED 是否可恢复，后续再定。
+4. match-service 不推荐非 ACTIVE 用户。
+5. im-service 不允许与封禁用户创建新会话。
+6. post-service 展示时可做匿名化或不可见处理。
+
+---
+
+### 6.7 设备识别问题
+
+设备信息用于：
+
+1. 登录记录。
+2. 风控。
+3. 推送 token 绑定。
+4. 判断多设备登录。
+5. 未来做设备黑名单。
+
+Stage USER 阶段只记录基础设备，不做复杂风控。
+
+---
+
+### 6.8 幂等问题
+
+user-service 中的幂等点：
+
+1. 注册幂等：同一个 identity_type + identity_value 只能注册一次。
+2. 头像绑定幂等：同一个 user_id + object_key + photo_type 不重复创建。
+3. 设备绑定幂等：同一个 user_id + device_fingerprint 不重复创建。
+4. 更新资料：允许重复提交，但要保证最终状态一致。
+5. 批量查询：天然幂等，只读接口。
+
+实现手段：
+
+1. 唯一索引兜底。
+2. Service 层先查再写。
+3. 数据库冲突时转换成业务异常。
+4. 不依赖 Redis 做最终幂等。
+
+---
+
+## 7. 技术选型
+
+| 类别            | 方案                      |
+| ------------- | ----------------------- |
+| 语言            | Java 21                 |
+| 框架            | Spring Boot 3.3.5       |
+| ORM           | MyBatis-Plus            |
+| 数据库           | PostgreSQL 16           |
+| 缓存            | Redis 7                 |
+| RPC           | gRPC + Protobuf         |
+| 配置 / 注册       | Nacos                   |
+| 对象存储          | MinIO，仅保存 object key    |
+| migration     | Flyway                  |
+| 日志            | SLF4J + stdout          |
+| 时间            | UTC                     |
+| 包名            | `com.dating.user`       |
+| schema        | `user_center`           |
+| Redis 前缀      | `yanshuqi:user:`        |
+| Nacos Data ID | `user-service-dev.yaml` |
+
+---
+
+## 8. 包结构设计
+
+user-service 采用以下包结构：
+
+```text
+user-service/
+├── src/main/java/com/dating/user/
+│   ├── UserServiceApplication.java
+│   ├── controller/
+│   │   └── HealthController.java
+│   ├── grpc/
+│   │   ├── UserAuthGrpcService.java
+│   │   ├── UserProfileGrpcService.java
+│   │   └── UserQueryGrpcService.java
+│   ├── service/
+│   │   ├── UserAuthService.java
+│   │   ├── UserProfileService.java
+│   │   ├── UserPhotoService.java
+│   │   ├── UserDeviceService.java
+│   │   └── impl/
+│   │       ├── UserAuthServiceImpl.java
+│   │       ├── UserProfileServiceImpl.java
+│   │       ├── UserPhotoServiceImpl.java
+│   │       └── UserDeviceServiceImpl.java
+│   ├── manager/
+│   │   ├── UserManager.java
+│   │   ├── UserAuthIdentityManager.java
+│   │   ├── UserProfileManager.java
+│   │   ├── UserPhotoManager.java
+│   │   ├── UserDeviceManager.java
+│   │   └── UserSettingsManager.java
+│   ├── mapper/
+│   │   ├── UserMapper.java
+│   │   ├── UserAuthIdentityMapper.java
+│   │   ├── UserProfileMapper.java
+│   │   ├── UserPhotoMapper.java
+│   │   ├── UserDeviceMapper.java
+│   │   └── UserSettingsMapper.java
+│   ├── entity/
+│   │   ├── UserEntity.java
+│   │   ├── UserAuthIdentityEntity.java
+│   │   ├── UserProfileEntity.java
+│   │   ├── UserPhotoEntity.java
+│   │   ├── UserDeviceEntity.java
+│   │   └── UserSettingsEntity.java
+│   ├── dto/
+│   │   ├── RegisterCommand.java
+│   │   ├── LoginCommand.java
+│   │   ├── UpdateProfileCommand.java
+│   │   ├── BindPhotoCommand.java
+│   │   └── BatchUserQuery.java
+│   ├── vo/
+│   │   ├── RegisterResult.java
+│   │   ├── LoginResult.java
+│   │   ├── UserBasicProfileVO.java
+│   │   ├── UserProfileDetailVO.java
+│   │   └── UserRecommendProfileVO.java
+│   ├── client/
+│   ├── config/
+│   │   ├── MyBatisPlusConfig.java
+│   │   ├── RedisConfig.java
+│   │   ├── UserCacheProperties.java
+│   │   └── SnowflakeIdConfig.java
+│   ├── constant/
+│   │   ├── UserType.java
+│   │   ├── AccountStatus.java
+│   │   ├── ProfileStatus.java
+│   │   ├── IdentityType.java
+│   │   ├── PhotoType.java
+│   │   └── RedisKeyConstants.java
+│   └── exception/
+│       ├── UserBizException.java
+│       ├── UserErrorCode.java
+│       └── GlobalExceptionHandler.java
+└── src/main/resources/
+    ├── application.yml
+    ├── application-dev.yml
+    ├── bootstrap.yml
+    ├── logback-spring.xml
+    └── db/migration/
+        ├── V20260616_001__create_user_core_tables.sql
+        └── V20260616_002__create_user_indexes.sql
+```
+
+### 分层职责
+
+#### controller
+
+Stage 初期只保留健康检查，不直接暴露业务 REST。业务 REST 由 mobile-gateway 承接。
+
+#### grpc
+
+负责 gRPC 入参转换、调用 service、返回 gRPC response。
+
+禁止在 grpc 层写复杂业务逻辑。
+
+#### service
+
+负责业务编排和事务边界。
+
+例如：
+
+1. 注册时创建 users、auth_identity、profile、settings。
+2. 登录时校验身份和密码，更新登录时间。
+3. 更新资料时校验字段、更新资料、删除缓存。
+4. 绑定头像时校验 object key、更新 user_photos、刷新 profile.avatar_key。
+
+#### manager
+
+负责单聚合的数据访问编排。
+
+例如：
+
+1. UserManager 只处理 users 表。
+2. UserProfileManager 只处理 user_profiles 表。
+3. UserPhotoManager 只处理 user_photos 表。
+4. 不做跨服务逻辑。
+
+#### mapper
+
+MyBatis-Plus Mapper，一张 Mapper 只服务一张表。
+
+禁止多表 JOIN。
+
+#### entity
+
+数据库实体，与表结构 1:1。
+
+#### dto / command
+
+service 层入参对象，不直接使用 grpc request。
+
+#### vo / result
+
+service 层出参对象，不直接返回 entity。
+
+---
+
+## 9. 数据库设计
+
+数据库：
+
+```text
+database = dating_dev_yanshuqi
+schema = user_center
+```
+
+### 9.1 users 用户主表
+
+用途：保存用户账号主记录和用户全局状态。
+
+```sql
+CREATE TABLE user_center.users (
+    id BIGSERIAL PRIMARY KEY,
+    user_id BIGINT NOT NULL,
+    user_type VARCHAR(16) NOT NULL,
+    account_status VARCHAR(32) NOT NULL,
+    profile_status VARCHAR(32) NOT NULL,
+    register_source VARCHAR(32) NOT NULL,
+    token_version INTEGER NOT NULL DEFAULT 1,
+    last_login_at TIMESTAMPTZ NULL,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    deleted INTEGER NOT NULL DEFAULT 0,
+    CONSTRAINT uk_users_user_id UNIQUE (user_id)
+);
+
+COMMENT ON TABLE user_center.users IS '用户主表：保存用户内部业务主键、用户类型、账号状态、资料状态等全局信息';
+COMMENT ON COLUMN user_center.users.id IS '数据库自增主键，仅用于物理存储，不对外暴露';
+COMMENT ON COLUMN user_center.users.user_id IS '用户业务主键，跨服务引用和接口返回都使用该字段';
+COMMENT ON COLUMN user_center.users.user_type IS '用户类型：BH=真人用户，DH=数字人用户';
+COMMENT ON COLUMN user_center.users.account_status IS '账号状态：ACTIVE=正常，DISABLED=停用，BANNED=封禁，DELETED=注销';
+COMMENT ON COLUMN user_center.users.profile_status IS '资料状态：INIT=未完善，BASIC_DONE=基础资料完成，PHOTO_DONE=头像完成，COMPLETED=资料完整';
+COMMENT ON COLUMN user_center.users.register_source IS '注册来源：PHONE、EMAIL、GOOGLE、APPLE、DEVICE、ADMIN';
+COMMENT ON COLUMN user_center.users.token_version IS 'Token 版本号，用于用户登出、封禁、强制失效历史 token';
+COMMENT ON COLUMN user_center.users.last_login_at IS '最近一次登录时间，统一 UTC';
+COMMENT ON COLUMN user_center.users.created_at IS '创建时间，统一 UTC';
+COMMENT ON COLUMN user_center.users.updated_at IS '更新时间，统一 UTC';
+COMMENT ON COLUMN user_center.users.deleted IS '逻辑删除标记：0=未删除，1=已删除';
+```
+
+索引：
+
+```sql
+CREATE INDEX idx_users_account_status ON user_center.users(account_status);
+CREATE INDEX idx_users_user_type ON user_center.users(user_type);
+CREATE INDEX idx_users_profile_status ON user_center.users(profile_status);
+```
+
+---
+
+### 9.2 user_auth_identities 用户登录凭证表
+
+用途：支持手机号、邮箱、第三方账号、设备号等多登录方式。
+
+```sql
+CREATE TABLE user_center.user_auth_identities (
+    id BIGSERIAL PRIMARY KEY,
+    auth_id BIGINT NOT NULL,
+    user_id BIGINT NOT NULL,
+    identity_type VARCHAR(32) NOT NULL,
+    identity_value VARCHAR(255) NOT NULL,
+    identity_hash VARCHAR(128) NOT NULL,
+    password_hash VARCHAR(255) NULL,
+    verified INTEGER NOT NULL DEFAULT 0,
+    verified_at TIMESTAMPTZ NULL,
+    last_login_at TIMESTAMPTZ NULL,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    deleted INTEGER NOT NULL DEFAULT 0,
+    CONSTRAINT uk_user_auth_auth_id UNIQUE (auth_id),
+    CONSTRAINT uk_user_auth_identity UNIQUE (identity_type, identity_hash)
+);
+
+COMMENT ON TABLE user_center.user_auth_identities IS '用户登录凭证表：保存手机号、邮箱、第三方账号等身份凭证';
+COMMENT ON COLUMN user_center.user_auth_identities.auth_id IS '登录凭证业务主键';
+COMMENT ON COLUMN user_center.user_auth_identities.user_id IS '用户业务主键，关联 users.user_id';
+COMMENT ON COLUMN user_center.user_auth_identities.identity_type IS '凭证类型：PHONE、EMAIL、GOOGLE、APPLE、DEVICE';
+COMMENT ON COLUMN user_center.user_auth_identities.identity_value IS '凭证明文或脱敏值，生产环境应加密或脱敏存储';
+COMMENT ON COLUMN user_center.user_auth_identities.identity_hash IS '凭证归一化后的哈希值，用于唯一索引和登录查询';
+COMMENT ON COLUMN user_center.user_auth_identities.password_hash IS '密码哈希，不保存明文密码';
+COMMENT ON COLUMN user_center.user_auth_identities.verified IS '凭证是否已验证：0=未验证，1=已验证';
+COMMENT ON COLUMN user_center.user_auth_identities.verified_at IS '凭证验证时间，统一 UTC';
+COMMENT ON COLUMN user_center.user_auth_identities.last_login_at IS '该凭证最近一次登录时间，统一 UTC';
+```
+
+说明：
+
+1. 登录查询走 `identity_type + identity_hash`。
+2. 手机号 / 邮箱不建议直接作为唯一索引。
+3. 密码必须哈希存储。
+4. 日志禁止打印 `identity_value`、`password_hash`。
+
+---
+
+### 9.3 user_profiles 用户资料表
+
+用途：保存用户展示资料和推荐基础属性。
+
+```sql
+CREATE TABLE user_center.user_profiles (
+    id BIGSERIAL PRIMARY KEY,
+    profile_id BIGINT NOT NULL,
+    user_id BIGINT NOT NULL,
+    nickname VARCHAR(64) NULL,
+    gender VARCHAR(16) NULL,
+    birth_date DATE NULL,
+    country_code VARCHAR(16) NULL,
+    city_code VARCHAR(64) NULL,
+    language_codes JSONB NULL,
+    bio VARCHAR(500) NULL,
+    avatar_key VARCHAR(512) NULL,
+    interests JSONB NULL,
+    profile_score INTEGER NOT NULL DEFAULT 0,
+    profile_completed INTEGER NOT NULL DEFAULT 0,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    deleted INTEGER NOT NULL DEFAULT 0,
+    CONSTRAINT uk_user_profiles_profile_id UNIQUE (profile_id),
+    CONSTRAINT uk_user_profiles_user_id UNIQUE (user_id)
+);
+
+COMMENT ON TABLE user_center.user_profiles IS '用户资料表：保存昵称、性别、生日、地区、头像、兴趣标签等展示和推荐所需信息';
+COMMENT ON COLUMN user_center.user_profiles.profile_id IS '资料业务主键';
+COMMENT ON COLUMN user_center.user_profiles.user_id IS '用户业务主键';
+COMMENT ON COLUMN user_center.user_profiles.nickname IS '用户昵称，用于聊天、Feed、推荐展示';
+COMMENT ON COLUMN user_center.user_profiles.gender IS '用户性别：MALE、FEMALE、OTHER、UNKNOWN';
+COMMENT ON COLUMN user_center.user_profiles.birth_date IS '出生日期，用于计算年龄，接口不直接返回完整生日给无权限调用方';
+COMMENT ON COLUMN user_center.user_profiles.country_code IS '国家或地区编码';
+COMMENT ON COLUMN user_center.user_profiles.city_code IS '城市编码';
+COMMENT ON COLUMN user_center.user_profiles.language_codes IS '用户语言列表，JSON 数组';
+COMMENT ON COLUMN user_center.user_profiles.bio IS '个人简介';
+COMMENT ON COLUMN user_center.user_profiles.avatar_key IS '头像 object key，只存 key，不存完整 URL';
+COMMENT ON COLUMN user_center.user_profiles.interests IS '兴趣标签，JSON 数组';
+COMMENT ON COLUMN user_center.user_profiles.profile_score IS '资料完整度分数';
+COMMENT ON COLUMN user_center.user_profiles.profile_completed IS '资料是否完整：0=未完成，1=已完成';
+```
+
+索引：
+
+```sql
+CREATE INDEX idx_user_profiles_gender ON user_center.user_profiles(gender);
+CREATE INDEX idx_user_profiles_country_city ON user_center.user_profiles(country_code, city_code);
+CREATE INDEX idx_user_profiles_completed ON user_center.user_profiles(profile_completed);
+```
+
+---
+
+### 9.4 user_photos 用户照片表
+
+用途：保存头像、相册图片 object key。
+
+```sql
+CREATE TABLE user_center.user_photos (
+    id BIGSERIAL PRIMARY KEY,
+    photo_id BIGINT NOT NULL,
+    user_id BIGINT NOT NULL,
+    photo_type VARCHAR(32) NOT NULL,
+    object_key VARCHAR(512) NOT NULL,
+    sort_order INTEGER NOT NULL DEFAULT 0,
+    review_status VARCHAR(32) NOT NULL DEFAULT 'PENDING',
+    enabled INTEGER NOT NULL DEFAULT 1,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    deleted INTEGER NOT NULL DEFAULT 0,
+    CONSTRAINT uk_user_photos_photo_id UNIQUE (photo_id),
+    CONSTRAINT uk_user_photos_user_object UNIQUE (user_id, object_key)
+);
+
+COMMENT ON TABLE user_center.user_photos IS '用户照片表：保存头像和相册 object key，不保存完整 URL';
+COMMENT ON COLUMN user_center.user_photos.photo_id IS '照片业务主键';
+COMMENT ON COLUMN user_center.user_photos.user_id IS '用户业务主键';
+COMMENT ON COLUMN user_center.user_photos.photo_type IS '照片类型：AVATAR=头像，ALBUM=相册';
+COMMENT ON COLUMN user_center.user_photos.object_key IS 'MinIO object key，只存 key，不存完整 URL';
+COMMENT ON COLUMN user_center.user_photos.sort_order IS '排序值，越小越靠前';
+COMMENT ON COLUMN user_center.user_photos.review_status IS '审核状态：PENDING、APPROVED、REJECTED';
+COMMENT ON COLUMN user_center.user_photos.enabled IS '是否启用：0=禁用，1=启用';
+```
+
+索引：
+
+```sql
+CREATE INDEX idx_user_photos_user_type ON user_center.user_photos(user_id, photo_type);
+CREATE INDEX idx_user_photos_review ON user_center.user_photos(review_status);
+```
+
+---
+
+### 9.5 user_devices 用户设备表
+
+用途：保存登录设备、平台、推送 token 哈希等基础信息。
+
+```sql
+CREATE TABLE user_center.user_devices (
+    id BIGSERIAL PRIMARY KEY,
+    device_id BIGINT NOT NULL,
+    user_id BIGINT NOT NULL,
+    platform VARCHAR(32) NOT NULL,
+    device_fingerprint VARCHAR(128) NOT NULL,
+    push_token_hash VARCHAR(128) NULL,
+    app_version VARCHAR(64) NULL,
+    last_seen_at TIMESTAMPTZ NULL,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    deleted INTEGER NOT NULL DEFAULT 0,
+    CONSTRAINT uk_user_devices_device_id UNIQUE (device_id),
+    CONSTRAINT uk_user_devices_user_fp UNIQUE (user_id, device_fingerprint)
+);
+
+COMMENT ON TABLE user_center.user_devices IS '用户设备表：保存用户登录设备、平台、设备指纹和推送 token 哈希';
+COMMENT ON COLUMN user_center.user_devices.device_id IS '设备业务主键';
+COMMENT ON COLUMN user_center.user_devices.user_id IS '用户业务主键';
+COMMENT ON COLUMN user_center.user_devices.platform IS '平台：IOS、ANDROID、WEB';
+COMMENT ON COLUMN user_center.user_devices.device_fingerprint IS '设备指纹，用于识别同一设备';
+COMMENT ON COLUMN user_center.user_devices.push_token_hash IS '推送 token 哈希，不保存明文 token';
+COMMENT ON COLUMN user_center.user_devices.app_version IS 'App 版本';
+COMMENT ON COLUMN user_center.user_devices.last_seen_at IS '最近活跃时间，统一 UTC';
+```
+
+---
+
+### 9.6 user_settings 用户设置表
+
+用途：保存发现开关、推荐偏好、通知设置、隐私设置。
+
+```sql
+CREATE TABLE user_center.user_settings (
+    id BIGSERIAL PRIMARY KEY,
+    setting_id BIGINT NOT NULL,
+    user_id BIGINT NOT NULL,
+    discoverable INTEGER NOT NULL DEFAULT 1,
+    preferred_gender VARCHAR(32) NULL,
+    preferred_age_min INTEGER NULL,
+    preferred_age_max INTEGER NULL,
+    notification_settings JSONB NULL,
+    privacy_settings JSONB NULL,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    deleted INTEGER NOT NULL DEFAULT 0,
+    CONSTRAINT uk_user_settings_setting_id UNIQUE (setting_id),
+    CONSTRAINT uk_user_settings_user_id UNIQUE (user_id)
+);
+
+COMMENT ON TABLE user_center.user_settings IS '用户设置表：保存推荐可见性、偏好设置、通知设置和隐私设置';
+COMMENT ON COLUMN user_center.user_settings.setting_id IS '设置业务主键';
+COMMENT ON COLUMN user_center.user_settings.user_id IS '用户业务主键';
+COMMENT ON COLUMN user_center.user_settings.discoverable IS '是否可被推荐：0=不可见，1=可见';
+COMMENT ON COLUMN user_center.user_settings.preferred_gender IS '偏好性别';
+COMMENT ON COLUMN user_center.user_settings.preferred_age_min IS '偏好最小年龄';
+COMMENT ON COLUMN user_center.user_settings.preferred_age_max IS '偏好最大年龄';
+COMMENT ON COLUMN user_center.user_settings.notification_settings IS '通知设置 JSON';
+COMMENT ON COLUMN user_center.user_settings.privacy_settings IS '隐私设置 JSON';
+```
+
+---
+
+## 10. Redis 缓存设计
+
+### 10.1 Key 前缀
+
+所有 key 必须以：
+
+```text
+yanshuqi:user:
+```
+
+开头。
+
+### 10.2 推荐 key
+
+| 场景          | Key                                           | TTL   |
+| ----------- | --------------------------------------------- | ----- |
+| 用户基础资料缓存    | `yanshuqi:user:basic:{user_id}`               | 30 分钟 |
+| 用户详细资料缓存    | `yanshuqi:user:profile:{user_id}`             | 30 分钟 |
+| 用户状态缓存      | `yanshuqi:user:status:{user_id}`              | 10 分钟 |
+| 批量资料查询防穿透空值 | `yanshuqi:user:empty:{user_id}`               | 5 分钟  |
+| 注册锁         | `yanshuqi:user:lock:register:{identity_hash}` | 10 秒  |
+| 更新资料锁       | `yanshuqi:user:lock:profile:{user_id}`        | 10 秒  |
+
+### 10.3 缓存策略
+
+使用 Cache Aside：
+
+```text
+读：先查缓存 → 未命中查 DB → 回填缓存
+写：先写 DB → 再删除缓存
+```
+
+禁止：
+
+1. 先删缓存再写库。
+2. 同时写库和写缓存的双写方案。
+3. 永久 key。
+4. 无 `yanshuqi:user:` 前缀的 key。
+
+---
+
+## 11. gRPC 接口草案
+
+正式 proto 在 Stage 01 定义，这里只做接口草案。
+
+### 11.1 UserAuthService
+
+#### Register
+
+用途：注册用户。
+
+入参：
+
+```text
+identity_type
+identity_value
+password
+user_type
+register_source
+device_info
+```
+
+出参：
+
+```text
+user_id
+account_status
+profile_status
+token_version
+```
+
+---
+
+#### VerifyLogin
+
+用途：校验登录凭证。
+
+入参：
+
+```text
+identity_type
+identity_value
+password
+device_info
+```
+
+出参：
+
+```text
+user_id
+account_status
+profile_status
+token_version
+last_login_at
+```
+
+说明：
+
+1. user-service 只校验凭证。
+2. JWT 由 mobile-gateway 签发。
+3. user-service 不返回密码哈希。
+
+---
+
+### 11.2 UserProfileService
+
+#### GetSelfProfile
+
+查询当前用户完整资料。
+
+#### UpdateProfile
+
+更新用户昵称、性别、生日、地区、简介、兴趣标签。
+
+#### BindUserPhoto
+
+绑定头像或相册 object key。
+
+#### ListUserPhotos
+
+查询用户照片列表。
+
+---
+
+### 11.3 UserQueryService
+
+#### BatchGetBasicProfiles
+
+供 im-service、post-service 查询展示资料。
+
+返回：
+
+```text
+user_id
+nickname
+avatar_key
+user_type
+account_status
+```
+
+#### BatchGetRecommendProfiles
+
+供 match-service 查询推荐资料。
+
+返回：
+
+```text
+user_id
+user_type
+gender
+birth_date
+country_code
+city_code
+interests
+avatar_key
+profile_completed
+discoverable
+account_status
+```
+
+#### CheckUserAvailable
+
+供 payment-service / im-service 判断用户是否存在且可用。
+
+#### GetUserProfileForAI
+
+供 ai-chat 获取基础画像。
+
+返回：
+
+```text
+user_id
+nickname
+gender
+age_range
+country_code
+city_code
+interests
+bio
+user_type
+```
+
+---
+
+## 12. 核心调用链设计
+
+### 12.1 注册调用链
+
+```text
+App
+→ mobile-gateway REST /api/users/register
+→ user-service gRPC UserAuthService.Register
+→ UserAuthGrpcService.register()
+→ UserAuthService.register()
+→ UserAuthIdentityManager.findByIdentityHash()
+→ UserManager.createUser()
+→ UserAuthIdentityManager.createIdentity()
+→ UserProfileManager.createDefaultProfile()
+→ UserSettingsManager.createDefaultSettings()
+→ PostgreSQL user_center
+→ 返回 RegisterResult
+→ mobile-gateway 签发 JWT
+→ App
+```
+
+---
+
+### 12.2 登录调用链
+
+```text
+App
+→ mobile-gateway REST /api/users/login
+→ user-service gRPC UserAuthService.VerifyLogin
+→ UserAuthGrpcService.verifyLogin()
+→ UserAuthService.verifyLogin()
+→ UserAuthIdentityManager.findByIdentityHash()
+→ UserManager.findByUserId()
+→ UserAuthService 校验密码和账号状态
+→ UserDeviceManager.upsertDevice()
+→ UserManager.updateLastLoginAt()
+→ 返回 LoginResult
+→ mobile-gateway 签发 JWT
+→ App
+```
+
+---
+
+### 12.3 更新资料调用链
+
+```text
+App
+→ mobile-gateway REST /api/users/me/profile
+→ user-service gRPC UserProfileService.UpdateProfile
+→ UserProfileGrpcService.updateProfile()
+→ UserProfileService.updateProfile()
+→ UserManager.checkUserActive()
+→ UserProfileManager.updateProfile()
+→ UserProfileService.calculateProfileStatus()
+→ UserManager.updateProfileStatus()
+→ Redis 删除 yanshuqi:user:profile:{user_id}
+→ Redis 删除 yanshuqi:user:basic:{user_id}
+→ 返回 UserProfileDetailVO
+```
+
+---
+
+### 12.4 绑定头像调用链
+
+```text
+App 先完成 MinIO 上传或拿到 object key
+→ mobile-gateway REST /api/users/me/avatar
+→ user-service gRPC UserProfileService.BindUserPhoto
+→ UserPhotoService.bindPhoto()
+→ 校验 object_key 是否符合 avatar/{user_id}/...
+→ UserPhotoManager.upsertPhoto()
+→ UserProfileManager.updateAvatarKey()
+→ 删除用户资料缓存
+→ 返回 avatar_key
+```
+
+---
+
+### 12.5 批量查询用户资料调用链
+
+```text
+match-service / im-service / post-service
+→ user-service gRPC BatchGetBasicProfiles
+→ UserQueryGrpcService.batchGetBasicProfiles()
+→ UserProfileService.batchGetBasicProfiles()
+→ Redis 批量查 yanshuqi:user:basic:{user_id}
+→ 未命中 user_ids 批量查 DB
+→ 回填 Redis
+→ 返回 Map<user_id, UserBasicProfile>
+```
+
+---
+
+## 13. 事务设计
+
+### 13.1 需要事务的场景
+
+1. 注册：创建 users、auth_identity、profile、settings 必须在一个本地事务中完成。
+2. 更新资料：更新 profile 和 users.profile_status 必须在一个本地事务中完成。
+3. 绑定头像：写 user_photos 和更新 user_profiles.avatar_key 必须在一个本地事务中完成。
+4. 账号状态变更：更新 users 和清理缓存必须有明确顺序。
+
+### 13.2 禁止跨服务事务
+
+例如：
+
+```text
+注册用户
+→ user-service 创建用户
+→ payment-service 初始化金币账户
+```
+
+不能用本地事务跨服务包住。
+
+后续应该通过：
+
+1. gRPC 补偿。
+2. MQ 事件。
+3. 定时对账。
+4. 懒初始化账户。
+
+Stage user-service 不主动调用 payment-service。
+
+---
+
+## 14. 异常设计
+
+### 14.1 错误码
+
+建议错误码：
+
+| 错误码                       | 含义               |
+| ------------------------- | ---------------- |
+| USER_NOT_FOUND            | 用户不存在            |
+| USER_DISABLED             | 用户已停用            |
+| USER_BANNED               | 用户已封禁            |
+| USER_DELETED              | 用户已注销            |
+| IDENTITY_ALREADY_EXISTS   | 登录凭证已存在          |
+| IDENTITY_NOT_FOUND        | 登录凭证不存在          |
+| PASSWORD_INVALID          | 密码错误             |
+| PROFILE_NOT_COMPLETED     | 资料未完善            |
+| PHOTO_OBJECT_KEY_INVALID  | 图片 object key 非法 |
+| PHOTO_REVIEW_NOT_APPROVED | 图片审核未通过          |
+| USER_REQUEST_INVALID      | 入参非法             |
+| USER_CONCURRENT_CONFLICT  | 并发修改冲突           |
+
+### 14.2 异常处理原则
+
+1. 业务异常抛 `UserBizException`。
+2. gRPC 层将业务异常转换为 gRPC status。
+3. REST 层由 gateway 统一包装 Result。
+4. 日志必须记录 traceId、userId、错误码。
+5. 日志禁止打印密码、token、AK、SK、手机号明文、邮箱明文。
+
+---
+
+## 15. 安全设计
+
+### 15.1 密码
+
+1. 不保存明文密码。
+2. 使用 BCrypt 或项目统一密码哈希组件。
+3. 登录失败不区分“账号不存在”和“密码错误”的前端提示，避免枚举账号。
+4. 服务端日志禁止打印密码。
+
+### 15.2 手机号 / 邮箱
+
+1. 查询索引用 hash。
+2. 展示时脱敏。
+3. 日志禁止打印明文。
+4. 后续可引入加密字段存储。
+
+### 15.3 设备指纹
+
+1. 不作为唯一身份凭证。
+2. 只作为风控辅助信息。
+3. 日志中只打印后 4 位或 hash。
+
+### 15.4 object key
+
+1. 只允许绑定当前 user_id 路径下的 object key。
+2. 不接受完整 URL。
+3. 不允许绑定其他用户目录的 object key。
+4. 不在 user-service 里直接暴露 presigned URL。
+
+---
+
+## 16. 注释强约束
+
+### 16.1 public 方法必须写中文 Javadoc
+
+所有 public 方法必须写：
+
+1. 方法用途。
+2. 入参含义。
+3. 返回值含义。
+4. 可能抛出的异常。
+5. 关键业务约束。
+
+示例：
+
+```java
+/**
+ * 注册新用户，并初始化用户主记录、登录凭证、基础资料和默认设置。
+ *
+ * @param command 注册命令，包含登录凭证、用户类型、注册来源和设备信息
+ * @return 注册结果，包含 user_id、账号状态、资料状态和 token 版本号
+ * @throws UserBizException 当登录凭证已存在、入参非法或数据库写入失败时抛出
+ */
+RegisterResult register(RegisterCommand command);
+```
+
+### 16.2 核心业务块必须写编号注释
+
+示例：
+
+```java
+/**
+ * 注册新用户，并初始化用户基础数据。
+ *
+ * @param command 注册命令
+ * @return 注册结果
+ */
+@Transactional(rollbackFor = Exception.class)
+public RegisterResult register(RegisterCommand command) {
+    // 1. 参数校验：检查登录凭证、密码强度、用户类型是否合法
+    validateRegisterCommand(command);
+
+    // 2. 幂等检查：同一个 identity_type + identity_hash 只能注册一次
+    checkIdentityNotExists(command);
+
+    // 3. 创建用户主记录：生成 user_id，初始化账号状态和资料状态
+    UserEntity user = createUser(command);
+
+    // 4. 创建登录凭证：保存 identity_hash 和 password_hash，不保存明文密码
+    createAuthIdentity(user.getUserId(), command);
+
+    // 5. 初始化用户资料和默认设置：保证后续资料查询不需要处理空记录
+    createDefaultProfileAndSettings(user.getUserId());
+
+    // 6. 返回注册结果：不返回敏感字段，由 gateway 负责签发 JWT
+    return buildRegisterResult(user);
+}
+```
+
+### 16.3 禁止无意义注释
+
+禁止：
+
+```java
+// 设置变量
+// 调用方法
+// 返回结果
+```
+
+必须说明业务原因：
+
+```java
+// 资料状态变更后删除缓存，避免 match-service 读取到旧的推荐属性
+```
+
+---
+
+## 17. 开发阶段拆分
+
+### USER-01：用户基础表与实体
+
+目标：
+
+1. 创建 user_center schema 下业务表。
+2. 创建 entity、mapper、manager 基础代码。
+3. 建立 Flyway migration。
+4. 不实现注册登录业务。
+
+验收：
+
+1. Flyway 执行成功。
+2. 表和字段注释完整。
+3. 每张表有业务主键。
+4. Mapper 只查单表。
+5. 无业务 REST 接口。
+
+---
+
+### USER-02：用户注册
+
+目标：
+
+1. 实现 Register gRPC 草案对应逻辑。
+2. 支持创建 BH 用户。
+3. 支持初始化 users、auth_identity、profile、settings。
+4. 支持重复注册唯一索引兜底。
+5. 不签发 JWT。
+
+验收：
+
+1. 正常注册成功。
+2. 重复 identity 注册失败。
+3. users / user_auth_identities / user_profiles / user_settings 数据一致。
+4. 方法和关键代码块中文注释完整。
+
+---
+
+### USER-03：用户登录
+
+目标：
+
+1. 实现 VerifyLogin。
+2. 校验 identity 和 password。
+3. 校验 account_status。
+4. 更新 last_login_at。
+5. upsert user_devices。
+6. 返回登录上下文给 gateway。
+
+验收：
+
+1. 正确密码登录成功。
+2. 错误密码登录失败。
+3. BANNED / DELETED 用户无法登录。
+4. 设备记录写入或更新成功。
+
+---
+
+### USER-04：用户资料维护
+
+目标：
+
+1. 查询本人资料。
+2. 更新昵称、性别、生日、地区、简介、兴趣标签。
+3. 计算 profile_completed。
+4. 更新 users.profile_status。
+5. 删除相关缓存。
+
+验收：
+
+1. 资料更新成功。
+2. 必填字段完整后 profile_status 变更。
+3. 缓存删除成功。
+4. 不出现跨表 JOIN。
+
+---
+
+### USER-05：头像 / 相册 object key 维护
+
+目标：
+
+1. 绑定头像 object key。
+2. 绑定相册 object key。
+3. 校验 object key 归属。
+4. 更新 avatar_key。
+5. 记录审核状态。
+
+验收：
+
+1. 合法 object key 绑定成功。
+2. 非当前用户 object key 被拒绝。
+3. user_photos 和 user_profiles.avatar_key 一致。
+4. 不返回完整 URL。
+
+---
+
+### USER-06：批量查询用户资料 gRPC
+
+目标：
+
+1. BatchGetBasicProfiles。
+2. BatchGetRecommendProfiles。
+3. CheckUserAvailable。
+4. GetUserProfileForAI。
+5. 增加 Redis cache aside。
+
+验收：
+
+1. 批量查询返回正确。
+2. 空 user_id 不报错，返回空集合。
+3. Redis key 使用 yanshuqi:user: 前缀。
+4. 缓存命中和未命中都可验证。
+
+---
+
+### USER-07：异常、日志、缓存完善
+
+目标：
+
+1. 统一 UserBizException。
+2. 统一错误码。
+3. gRPC 异常转换。
+4. 日志脱敏。
+5. 缓存删除失败容错。
+
+验收：
+
+1. 异常返回结构稳定。
+2. 日志无敏感字段。
+3. 关键链路有 traceId / userId。
+4. 缓存失败不影响主流程，但有错误日志。
+
+---
+
+### USER-08：模块验收与复盘
+
+目标：
+
+1. 整理 user-service/docs。
+2. 输出调用链文档。
+3. 输出验收脚本。
+4. 输出阶段总结。
+5. 准备答辩问题。
+
+验收：
+
+1. 文档完整。
+2. 代码可运行。
+3. 核心链路可讲清。
+4. 可进入 match-service 或 payment-service 阶段。
+
+---
+
+## 18. USER-01 Cursor 执行边界
+
+进入 USER-01 时，Cursor 只允许做：
+
+1. 创建 Flyway migration。
+2. 创建 entity。
+3. 创建 mapper。
+4. 创建 manager 基础类。
+5. 创建枚举。
+6. 创建基础异常类。
+7. 创建表结构验收脚本。
+8. 不实现注册登录。
+9. 不定义正式 proto。
+10. 不改其他服务。
+
+---
+
+## 19. 验收清单
+
+### 19.1 文档验收
+
+1. user-service/docs/02_TECH_DESIGN.md 存在。
+2. 数据库表设计完整。
+3. 调用链清楚。
+4. 阶段拆分清楚。
+5. 禁止项清楚。
+
+### 19.2 代码验收
+
+1. 包名为 `com.dating.user`。
+2. Controller / gRPC / Service / Manager / Mapper 分层清晰。
+3. public 方法有中文 Javadoc。
+4. 核心代码块有编号中文注释。
+5. 没有无意义注释。
+6. 没有跨服务 import。
+7. 没有多表 JOIN。
+8. 没有真实密钥。
+
+### 19.3 数据库验收
+
+1. 表位于 `user_center` schema。
+2. 每张表有业务主键。
+3. 每张表有 `created_at`、`updated_at`、`deleted`。
+4. 每张表和字段有 COMMENT。
+5. 时间字段使用 `TIMESTAMPTZ`。
+6. migration 文件命名规范。
+7. 历史 migration 不可修改。
+
+### 19.4 Redis 验收
+
+1. key 前缀为 `yanshuqi:user:`。
+2. key 有 TTL。
+3. 不存在永久 key。
+4. 不执行 FLUSHDB / FLUSHALL。
+
+### 19.5 接口验收
+
+1. gateway 对外 REST。
+2. user-service 内部 gRPC。
+3. 不做服务间 HTTP 调用。
+4. 不直接暴露 entity。
+5. 不返回敏感字段。
+
+---
+
+## 20. 当前设计边界
+
+本方案暂不做：
+
+1. 短信验证码。
+2. 邮箱验证码。
+3. Apple / Google 登录真实接入。
+4. JWT 签发。
+5. OpenIM 用户注册。
+6. 支付账户初始化。
+7. 推荐队列生成。
+8. AI persona 复杂配置。
+9. 图片审核真实流程。
+10. 账号注销完整合规流程。
+
+这些功能后续按阶段扩展，不在 user-service 第一轮强行完成。
