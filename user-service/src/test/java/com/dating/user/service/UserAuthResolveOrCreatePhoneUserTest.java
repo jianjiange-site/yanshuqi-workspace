@@ -68,6 +68,8 @@ class UserAuthResolveOrCreatePhoneUserTest {
     private UserDeviceManager userDeviceManager;
     @Mock
     private BusinessIdGenerator businessIdGenerator;
+    @Mock
+    private UserCacheInvalidationService userCacheInvalidationService;
 
     private IdentityHashService identityHashService;
     private UserAuthService userAuthService;
@@ -79,7 +81,8 @@ class UserAuthResolveOrCreatePhoneUserTest {
         userAuthService = new UserAuthServiceImpl(
                 userManager, userAuthIdentityManager, userProfileManager, userSettingsManager,
                 userDeviceManager, identityHashService, new PasswordHashService(), businessIdGenerator,
-                SlowCallLogger.forTest(), new LoginPendingCalculator(), new SmsCodeValidator());
+                SlowCallLogger.forTest(), new LoginPendingCalculator(), new SmsCodeValidator(),
+                userCacheInvalidationService);
         String normalizedPhone = identityHashService.normalizePhoneLoginIdentity(PHONE);
         identityHash = identityHashService.hash(IdentityType.PHONE.name(), normalizedPhone);
     }

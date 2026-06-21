@@ -51,6 +51,22 @@ public final class RedisKeyConstants {
         return KEY_PREFIX + "profile_view:" + userId;
     }
 
+    /**
+     * USER-09 资料相关缓存 Key 清单（basic/profile/status/profile_view）。
+     * 不引入 home_card:{self}:{target} 组合 key，避免资料更新时无法精准失效。
+     *
+     * @param userId 用户业务主键
+     * @return 需要统一失效的 Key 列表
+     */
+    public static java.util.List<String> allUserProfileCacheKeys(long userId) {
+        return java.util.List.of(
+                profileKey(userId),
+                basicKey(userId),
+                statusKey(userId),
+                profileViewKey(userId)
+        );
+    }
+
     private RedisKeyConstants() {
     }
 }

@@ -64,6 +64,8 @@ class UserAuthResolveOrCreateThirdPartyUserTest {
     private UserDeviceManager userDeviceManager;
     @Mock
     private BusinessIdGenerator businessIdGenerator;
+    @Mock
+    private UserCacheInvalidationService userCacheInvalidationService;
 
     private IdentityHashService identityHashService;
     private UserAuthService userAuthService;
@@ -75,7 +77,8 @@ class UserAuthResolveOrCreateThirdPartyUserTest {
         userAuthService = new UserAuthServiceImpl(
                 userManager, userAuthIdentityManager, userProfileManager, userSettingsManager,
                 userDeviceManager, identityHashService, new PasswordHashService(), businessIdGenerator,
-                SlowCallLogger.forTest(), new LoginPendingCalculator(), new SmsCodeValidator());
+                SlowCallLogger.forTest(), new LoginPendingCalculator(), new SmsCodeValidator(),
+                userCacheInvalidationService);
         String normalized = identityHashService.normalizeThirdPartyIdentity(ID_TOKEN);
         googleIdentityHash = identityHashService.hash(IdentityType.GOOGLE.name(), normalized);
     }

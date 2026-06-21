@@ -147,18 +147,29 @@ public class UserProfileServiceImpl implements UserProfileService {
 
     @Override
     public UserProfileViewVO getUserProfileView(Long userId) {
-        if (userId == null || userId <= 0) {
-            throw new UserBizException(UserErrorCode.USER_REQUEST_INVALID, "用户 ID 非法");
+        long startNano = System.nanoTime();
+        boolean success = true;
+        String errorCode = null;
+        try {
+            if (userId == null || userId <= 0) {
+                throw new UserBizException(UserErrorCode.USER_REQUEST_INVALID, "用户 ID 非法");
+            }
+            UserEntity userEntity = userManager.findByUserId(userId);
+            if (userEntity == null) {
+                throw new UserBizException(UserErrorCode.USER_NOT_FOUND);
+            }
+            UserProfileEntity profileEntity = userProfileManager.findByUserId(userId);
+            if (profileEntity == null) {
+                throw new UserBizException(UserErrorCode.PROFILE_NOT_FOUND);
+            }
+            return profileViewConverter.toView(userEntity, profileEntity);
+        } catch (UserBizException ex) {
+            success = false;
+            errorCode = ex.getErrorCode().getCode();
+            throw ex;
+        } finally {
+            slowCallLogger.logIfSlow("getUserProfileView", startNano, userId, success, errorCode);
         }
-        UserEntity userEntity = userManager.findByUserId(userId);
-        if (userEntity == null) {
-            throw new UserBizException(UserErrorCode.USER_NOT_FOUND);
-        }
-        UserProfileEntity profileEntity = userProfileManager.findByUserId(userId);
-        if (profileEntity == null) {
-            throw new UserBizException(UserErrorCode.PROFILE_NOT_FOUND);
-        }
-        return profileViewConverter.toView(userEntity, profileEntity);
     }
 
     private UserEntity loadActiveUserForUpdate(long userId) {

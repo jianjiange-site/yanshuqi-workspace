@@ -7,6 +7,7 @@ import org.springframework.stereotype.Component;
 
 /**
  * 慢调用日志记录器，覆盖关键业务路径。
+ * 仅输出白名单字段（method、costMs、success、errorCode、userId 等），不打印请求体或敏感字段。
  */
 @Component
 public class SlowCallLogger {

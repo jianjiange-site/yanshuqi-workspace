@@ -12,6 +12,7 @@ import java.util.List;
 
 /**
  * Redis 安全执行器，统一缓存读写删的异常降级策略。
+ * Redis 故障不能阻断主业务：读失败视为 miss 回源 DB，写/删失败仅打 warn 日志。
  */
 @Component
 @Profile("!test")
@@ -86,18 +87,32 @@ public class CacheSafeExecutor {
     }
 
     /**
-     * 安全批量删除 Redis Key。
-     *
-     * @param keys Redis Key 集合
+     * 安全批量删除 Redis Key；禁止 FLUSHDB/FLUSHALL 等危险命令渗入 key 名。
      */
     public void safeDeleteAll(Collection<String> keys) {
         if (keys == null || keys.isEmpty()) {
             return;
         }
-        try {
-            stringRedisTemplate.delete(keys);
-        } catch (Exception ex) {
-            log.warn("Redis 批量删除失败, keyCount={}", keys.size(), ex);
+        List<String> safeKeys = keys.stream()
+                .filter(key -> org.springframework.util.StringUtils.hasText(key))
+                .filter(key -> !isDangerousRedisKey(key))
+                .toList();
+        if (safeKeys.isEmpty()) {
+            return;
         }
+        try {
+            stringRedisTemplate.delete(safeKeys);
+        } catch (Exception ex) {
+            // Redis 删除失败不能影响主流程，仅记录告警
+            log.warn("Redis 批量删除失败, keyCount={}", safeKeys.size(), ex);
+        }
+    }
+
+    /**
+     * 拒绝将 FLUSH 类命令伪装成 key，防止误删全库。
+     */
+    private boolean isDangerousRedisKey(String key) {
+        String upper = key.trim().toUpperCase();
+        return upper.contains("FLUSHDB") || upper.contains("FLUSHALL");
     }
 }

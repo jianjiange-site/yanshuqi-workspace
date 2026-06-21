@@ -7,8 +7,6 @@ import org.slf4j.LoggerFactory;
 import org.springframework.context.annotation.Profile;
 import org.springframework.stereotype.Service;
 
-import java.util.List;
-
 /**
  * 用户资料相关 Redis 缓存失效服务，本阶段仅删除缓存，不写入缓存。
  */
@@ -20,33 +18,21 @@ public class UserCacheInvalidationService {
 
     private final CacheSafeExecutor cacheSafeExecutor;
 
-    /**
-     * 构造缓存失效服务。
-     *
-     * @param cacheSafeExecutor Redis 安全执行器
-     */
     public UserCacheInvalidationService(CacheSafeExecutor cacheSafeExecutor) {
         this.cacheSafeExecutor = cacheSafeExecutor;
     }
 
     /**
-     * 删除用户资料相关缓存 Key。
-     *
-     * @param userId 用户业务主键
+     * 删除用户资料相关四类缓存：basic / profile / status / profile_view。
+     * 写路径（Onboarding、UpdateProfile、ConfirmAvatar、BindPhoto 等）统一调用此方法，
+     * 避免业务代码散落拼 key；Redis 失败仅打日志，不回滚主事务。
      */
     public void evictProfileCache(Long userId) {
         if (userId == null || userId <= 0) {
             return;
         }
-        List<String> keys = List.of(
-                RedisKeyConstants.profileKey(userId),
-                RedisKeyConstants.basicKey(userId),
-                RedisKeyConstants.statusKey(userId),
-                RedisKeyConstants.profileViewKey(userId)
-        );
         try {
-            // 1. 删除 profile/basic/status 三个缓存 Key
-            cacheSafeExecutor.safeDeleteAll(keys);
+            cacheSafeExecutor.safeDeleteAll(RedisKeyConstants.allUserProfileCacheKeys(userId));
             log.info("用户资料缓存已删除, userId={}", userId);
         } catch (Exception ex) {
             log.warn("用户资料缓存删除失败, userId={}", userId, ex);

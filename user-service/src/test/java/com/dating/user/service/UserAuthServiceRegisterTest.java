@@ -71,6 +71,8 @@ class UserAuthServiceRegisterTest {
 
     @Mock
     private BusinessIdGenerator businessIdGenerator;
+    @Mock
+    private UserCacheInvalidationService userCacheInvalidationService;
 
     private IdentityHashService identityHashService;
 
@@ -96,7 +98,8 @@ class UserAuthServiceRegisterTest {
                 businessIdGenerator,
                 SlowCallLogger.forTest(),
                 new LoginPendingCalculator(),
-                new SmsCodeValidator()
+                new SmsCodeValidator(),
+                userCacheInvalidationService
         );
     }
 

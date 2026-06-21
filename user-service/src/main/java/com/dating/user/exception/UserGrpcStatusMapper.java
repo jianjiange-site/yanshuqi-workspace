@@ -5,6 +5,10 @@ import io.grpc.StatusRuntimeException;
 
 /**
  * 用户域业务错误码到 gRPC Status 的集中映射器。
+ * <p>
+ * 分层原则：参数非法 → INVALID_ARGUMENT；身份非法 → UNAUTHENTICATED；
+ * 资源不存在 → NOT_FOUND；账号/对象不可用 → PERMISSION_DENIED；
+ * 对象存储不可用 → UNAVAILABLE；并发/写冲突 → ABORTED；其余 → INTERNAL。
  */
 public final class UserGrpcStatusMapper {
 

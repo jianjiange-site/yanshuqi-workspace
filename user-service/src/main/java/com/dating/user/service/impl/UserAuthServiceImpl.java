@@ -25,6 +25,7 @@ import com.dating.user.manager.UserManager;
 import com.dating.user.manager.UserProfileManager;
 import com.dating.user.manager.UserSettingsManager;
 import com.dating.user.service.UserAuthService;
+import com.dating.user.service.UserCacheInvalidationService;
 import com.dating.user.service.support.BusinessIdGenerator;
 import com.dating.user.service.support.IdentityHashService;
 import com.dating.user.service.support.LoginPendingCalculator;
@@ -65,6 +66,7 @@ public class UserAuthServiceImpl implements UserAuthService {
     private final SlowCallLogger slowCallLogger;
     private final LoginPendingCalculator loginPendingCalculator;
     private final SmsCodeValidator smsCodeValidator;
+    private final UserCacheInvalidationService userCacheInvalidationService;
 
     /**
      * 构造用户认证业务服务。
@@ -80,6 +82,7 @@ public class UserAuthServiceImpl implements UserAuthService {
      * @param slowCallLogger           慢调用日志记录器
      * @param loginPendingCalculator   pending 计算器
      * @param smsCodeValidator         短信验证码校验入口
+     * @param userCacheInvalidationService 资料缓存统一失效入口
      */
     public UserAuthServiceImpl(UserManager userManager,
                                UserAuthIdentityManager userAuthIdentityManager,
@@ -91,7 +94,8 @@ public class UserAuthServiceImpl implements UserAuthService {
                                BusinessIdGenerator businessIdGenerator,
                                SlowCallLogger slowCallLogger,
                                LoginPendingCalculator loginPendingCalculator,
-                               SmsCodeValidator smsCodeValidator) {
+                               SmsCodeValidator smsCodeValidator,
+                               UserCacheInvalidationService userCacheInvalidationService) {
         this.userManager = userManager;
         this.userAuthIdentityManager = userAuthIdentityManager;
         this.userProfileManager = userProfileManager;
@@ -103,6 +107,7 @@ public class UserAuthServiceImpl implements UserAuthService {
         this.slowCallLogger = slowCallLogger;
         this.loginPendingCalculator = loginPendingCalculator;
         this.smsCodeValidator = smsCodeValidator;
+        this.userCacheInvalidationService = userCacheInvalidationService;
     }
 
     /**
@@ -467,6 +472,10 @@ public class UserAuthServiceImpl implements UserAuthService {
         result.setProfileStatus(userEntity.getProfileStatus());
         result.setTokenVersion(userEntity.getTokenVersion());
         result.setLastLoginAt(lastLoginAt);
+        // 首次创建用户时清理四类资料缓存，复登不删避免无意义 Redis 操作
+        if (newlyCreated) {
+            userCacheInvalidationService.evictProfileCache(userId);
+        }
         return result;
     }
 

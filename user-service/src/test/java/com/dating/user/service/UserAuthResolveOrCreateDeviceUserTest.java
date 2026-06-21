@@ -70,6 +70,8 @@ class UserAuthResolveOrCreateDeviceUserTest {
     private UserDeviceManager userDeviceManager;
     @Mock
     private BusinessIdGenerator businessIdGenerator;
+    @Mock
+    private UserCacheInvalidationService userCacheInvalidationService;
 
     private IdentityHashService identityHashService;
     private UserAuthService userAuthService;
@@ -81,7 +83,8 @@ class UserAuthResolveOrCreateDeviceUserTest {
         userAuthService = new UserAuthServiceImpl(
                 userManager, userAuthIdentityManager, userProfileManager, userSettingsManager,
                 userDeviceManager, identityHashService, new PasswordHashService(), businessIdGenerator,
-                SlowCallLogger.forTest(), new LoginPendingCalculator(), new SmsCodeValidator());
+                SlowCallLogger.forTest(), new LoginPendingCalculator(), new SmsCodeValidator(),
+                userCacheInvalidationService);
         String normalized = identityHashService.normalizeDeviceLoginIdentity(PLATFORM, DEVICE_ID);
         identityHash = identityHashService.hash(IdentityType.DEVICE.name(), normalized);
     }
@@ -103,6 +106,7 @@ class UserAuthResolveOrCreateDeviceUserTest {
         verify(userProfileManager).createDefaultProfile(anyLong(), eq(USER_ID));
         verify(userSettingsManager).createDefaultSettings(anyLong(), eq(USER_ID));
         verify(userManager).updateLastLoginAt(eq(USER_ID), any(OffsetDateTime.class));
+        verify(userCacheInvalidationService).evictProfileCache(USER_ID);
     }
 
     @Test
@@ -122,6 +126,7 @@ class UserAuthResolveOrCreateDeviceUserTest {
         assertEquals(USER_ID, second.getUserId());
         assertFalse(second.isNewlyCreated());
         verify(userManager, never()).createUser(any());
+        verify(userCacheInvalidationService, never()).evictProfileCache(anyLong());
     }
 
     @Test
