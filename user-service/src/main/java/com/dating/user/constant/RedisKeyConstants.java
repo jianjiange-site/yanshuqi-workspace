@@ -41,6 +41,16 @@ public final class RedisKeyConstants {
         return KEY_PREFIX + "status:" + userId;
     }
 
+    /**
+     * 构建 Swagger 资料视图缓存 Key。
+     *
+     * @param userId 用户业务主键
+     * @return Redis Key
+     */
+    public static String profileViewKey(long userId) {
+        return KEY_PREFIX + "profile_view:" + userId;
+    }
+
     private RedisKeyConstants() {
     }
 }

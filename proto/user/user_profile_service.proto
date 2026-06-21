@@ -24,6 +24,20 @@ service UserProfileService {
   rpc BatchGetRecommendProfiles(BatchGetRecommendProfilesRequest) returns (BatchGetRecommendProfilesResponse);
   // 批量检查用户是否可用。
   rpc CheckUserAvailable(CheckUserAvailableRequest) returns (CheckUserAvailableResponse);
+  // 首次登录后补齐 onboarding 资料，返回 Swagger 风格资料视图。
+  rpc UpsertOnboarding(UpsertOnboardingRequest) returns (UpsertOnboardingResponse);
+  // 查询 Swagger 风格用户资料视图。
+  rpc GetUserProfileView(GetUserProfileViewRequest) returns (GetUserProfileViewResponse);
+  // 查询主页卡片资料，返回 HomeCardVO 风格结构（self + target UserProfileView）。
+  rpc GetHomeCardProfile(GetHomeCardProfileRequest) returns (GetHomeCardProfileResponse);
+}
+
+// 用户头像上传 gRPC 服务（与 Profile 分 service 定义，Upload 边界清晰）。
+service UserAvatarService {
+  // 签发头像 PUT presigned URL，不落库。
+  rpc PresignAvatarUpload(PresignAvatarUploadRequest) returns (PresignAvatarUploadResponse);
+  // 确认头像已上传，statObject 后写入 user_photos。
+  rpc ConfirmAvatarUpload(ConfirmAvatarUploadRequest) returns (ConfirmAvatarUploadResponse);
 }
 
 // 查询本人资料请求。
@@ -68,11 +82,17 @@ message UpdateProfileRequest {
   repeated string language_codes = 7;
   string bio = 8;
   repeated string interests = 9;
+  optional int32 age = 10;
+  optional int32 height = 11;
+  string occupation = 12;
+  string education = 13;
+  string location = 14;
 }
 
 // 更新资料响应。
 message UpdateProfileResponse {
   UserProfileDetail profile = 1;
+  bool success = 2;
 }
 
 // 绑定照片请求。
@@ -186,4 +206,99 @@ message UserAvailableResult {
   string account_status = 3;
   string profile_status = 4;
   string reason = 5;
+}
+
+// Swagger 风格头像视图，本阶段仅临时映射 avatar_key。
+message AvatarView {
+  string original_key = 1;
+  string min_key = 2;
+  string mid_key = 3;
+  int32 width = 4;
+  int32 height = 5;
+}
+
+// Swagger UserProfileVO 风格资料视图。
+message UserProfileView {
+  int64 user_id = 1;
+  string nickname = 2;
+  int32 age = 3;
+  string gender = 4;
+  int32 height = 5;
+  string bio = 6;
+  string occupation = 7;
+  string education = 8;
+  string location = 9;
+  string birthday = 10;
+  AvatarView avatar = 11;
+  repeated string interests = 12;
+  bool pending = 13;
+  int32 regulation_status = 14;
+  int64 last_open_at_ms = 15;
+}
+
+// Onboarding 补齐资料请求。
+message UpsertOnboardingRequest {
+  int64 user_id = 1;
+  string nickname = 2;
+  string gender = 3;
+  string birthday = 4;
+  optional int32 age = 5;
+  optional int32 height = 6;
+  string bio = 7;
+  string occupation = 8;
+  string education = 9;
+  string location = 10;
+  string default_avatar_object_key = 11;
+}
+
+// Onboarding 响应。
+message UpsertOnboardingResponse {
+  UserProfileView profile = 1;
+}
+
+// 查询资料视图请求。
+message GetUserProfileViewRequest {
+  int64 user_id = 1;
+}
+
+// 查询资料视图响应。
+message GetUserProfileViewResponse {
+  UserProfileView profile = 1;
+}
+
+// 主页卡片查询请求，对应 Swagger GET /api/v1/home/card?targetId=xxx。
+message GetHomeCardProfileRequest {
+  int64 self_user_id = 1;
+  int64 target_user_id = 2;
+}
+
+// 主页卡片查询响应，对应 Swagger HomeCardVO。
+message GetHomeCardProfileResponse {
+  int64 self_user_id = 1;
+  UserProfileView target_profile = 2;
+}
+
+// 头像 presign 请求，对应 Swagger PresignAvatarReq。
+message PresignAvatarUploadRequest {
+  int64 user_id = 1;
+  string ext = 2;
+  int64 expected_size_bytes = 3;
+}
+
+// 头像 presign 响应，对应 Swagger PresignAvatarUploadVO。
+message PresignAvatarUploadResponse {
+  string presigned_url = 1;
+  string object_key = 2;
+  int64 expires_at_ms = 3;
+}
+
+// 头像 confirm 请求。
+message ConfirmAvatarUploadRequest {
+  int64 user_id = 1;
+  string object_key = 2;
+}
+
+// 头像 confirm 响应。
+message ConfirmAvatarUploadResponse {
+  AvatarView avatar = 1;
 }

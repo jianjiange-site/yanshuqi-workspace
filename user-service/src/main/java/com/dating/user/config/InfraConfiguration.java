@@ -6,7 +6,8 @@ import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 
 @Configuration
-@EnableConfigurationProperties({AppProperties.class, MinioProperties.class, UserCacheProperties.class})
+@EnableConfigurationProperties({AppProperties.class, MinioProperties.class, UserCacheProperties.class,
+        AvatarUploadProperties.class, ObjectStorageProperties.class})
 public class InfraConfiguration {
 
     @Bean

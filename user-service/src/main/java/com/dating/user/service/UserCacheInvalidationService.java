@@ -41,7 +41,8 @@ public class UserCacheInvalidationService {
         List<String> keys = List.of(
                 RedisKeyConstants.profileKey(userId),
                 RedisKeyConstants.basicKey(userId),
-                RedisKeyConstants.statusKey(userId)
+                RedisKeyConstants.statusKey(userId),
+                RedisKeyConstants.profileViewKey(userId)
         );
         try {
             // 1. 删除 profile/basic/status 三个缓存 Key

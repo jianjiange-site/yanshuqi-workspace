@@ -1,5 +1,6 @@
 package com.dating.user.service.support;
 
+import com.dating.user.constant.DevicePlatform;
 import com.dating.user.constant.IdentityType;
 import com.dating.user.exception.UserBizException;
 import com.dating.user.exception.UserErrorCode;
@@ -63,17 +64,143 @@ public class IdentityHashService {
      * @return 脱敏后的凭证值
      */
     public String maskForStorage(String identityType, String normalizedValue) {
-        IdentityType type = parseSupportedIdentityType(identityType);
+        IdentityType type;
+        try {
+            type = parseSupportedIdentityType(identityType);
+        } catch (UserBizException ex) {
+            type = parseLoginIdentityType(identityType);
+        }
         return switch (type) {
             case PHONE -> maskPhone(normalizedValue);
             case EMAIL -> maskEmail(normalizedValue);
             case DEVICE -> maskDevice(normalizedValue);
+            case GOOGLE, APPLE, FACEBOOK -> type.name().toLowerCase(Locale.ROOT) + ":***";
             default -> "***";
         };
     }
 
     /**
-     * 解析本阶段支持的凭证类型。
+     * 归一化设备匿名登录身份：platform + deviceId 组合作为唯一身份。
+     *
+     * @param platform 设备平台
+     * @param deviceId 设备标识，禁止明文入库或打印
+     * @return 归一化后的设备身份
+     * @throws UserBizException 当 platform 或 deviceId 非法时
+     */
+    public String normalizeDeviceLoginIdentity(String platform, String deviceId) {
+        String normalizedPlatform = parsePlatform(platform).name();
+        String normalizedDeviceId = normalizeDeviceId(deviceId);
+        return normalizedPlatform + ":" + normalizedDeviceId;
+    }
+
+    /**
+     * 归一化手机号登录身份。
+     *
+     * @param phone 手机号明文，禁止写入日志
+     * @return 归一化后的手机号
+     * @throws UserBizException 当手机号非法时
+     */
+    public String normalizePhoneLoginIdentity(String phone) {
+        if (!StringUtils.hasText(phone)) {
+            throw new UserBizException(UserErrorCode.INVALID_PHONE);
+        }
+        try {
+            return normalizePhone(phone.trim());
+        } catch (UserBizException ex) {
+            if (ex.getErrorCode() == UserErrorCode.USER_REQUEST_INVALID) {
+                throw new UserBizException(UserErrorCode.INVALID_PHONE);
+            }
+            throw ex;
+        }
+    }
+
+    /**
+     * 归一化三方登录身份：对 idToken 做 SHA-256，禁止明文入库或打印。
+     *
+     * @param idToken 三方 idToken 明文，禁止写入日志
+     * @return idToken 哈希十六进制字符串
+     * @throws UserBizException 当 idToken 为空时
+     */
+    public String normalizeThirdPartyIdentity(String idToken) {
+        if (!StringUtils.hasText(idToken)) {
+            throw new UserBizException(UserErrorCode.INVALID_THIRD_PARTY_IDENTITY);
+        }
+        return sha256Hex("OAUTH_ID_TOKEN:" + idToken.trim());
+    }
+
+    /**
+     * 解析登录来源凭证类型，支持 DEVICE / PHONE / GOOGLE / APPLE / FACEBOOK。
+     *
+     * @param identityType 凭证类型字符串
+     * @return 凭证类型枚举
+     * @throws UserBizException 当类型非法时
+     */
+    public IdentityType parseLoginIdentityType(String identityType) {
+        if (!StringUtils.hasText(identityType)) {
+            throw new UserBizException(UserErrorCode.USER_REQUEST_INVALID, "登录凭证类型不能为空");
+        }
+        try {
+            return IdentityType.valueOf(identityType.trim().toUpperCase(Locale.ROOT));
+        } catch (IllegalArgumentException ex) {
+            throw new UserBizException(UserErrorCode.USER_REQUEST_INVALID, "登录凭证类型非法");
+        }
+    }
+
+    /**
+     * 解析设备平台。
+     *
+     * @param platform 平台字符串
+     * @return 设备平台枚举
+     * @throws UserBizException 当平台非法时
+     */
+    public DevicePlatform parsePlatform(String platform) {
+        if (!StringUtils.hasText(platform)) {
+            throw new UserBizException(UserErrorCode.INVALID_PLATFORM);
+        }
+        try {
+            return DevicePlatform.valueOf(platform.trim().toUpperCase(Locale.ROOT));
+        } catch (IllegalArgumentException ex) {
+            throw new UserBizException(UserErrorCode.INVALID_PLATFORM);
+        }
+    }
+
+    /**
+     * 校验并归一化 deviceId，用于设备匿名登录与 user_devices upsert。
+     *
+     * @param deviceId 设备标识
+     * @return 归一化后的 deviceId
+     * @throws UserBizException 当 deviceId 非法时
+     */
+    public String normalizeDeviceId(String deviceId) {
+        if (!StringUtils.hasText(deviceId)) {
+            throw new UserBizException(UserErrorCode.INVALID_DEVICE_ID);
+        }
+        String normalized = deviceId.trim();
+        if (normalized.length() < 8 || normalized.length() > 128) {
+            throw new UserBizException(UserErrorCode.INVALID_DEVICE_ID);
+        }
+        return normalized;
+    }
+
+    /**
+     * 对 deviceId 做脱敏，用于日志输出。
+     *
+     * @param deviceId 设备标识
+     * @return 脱敏后的 deviceId
+     */
+    public String maskDeviceIdForLog(String deviceId) {
+        if (!StringUtils.hasText(deviceId)) {
+            return "***";
+        }
+        String normalized = deviceId.trim();
+        if (normalized.length() <= 4) {
+            return "device:***";
+        }
+        return "device:***" + normalized.substring(normalized.length() - 4);
+    }
+
+    /**
+     * 解析 Register 阶段支持的凭证类型。
      *
      * @param identityType 凭证类型字符串
      * @return 凭证类型枚举
@@ -85,7 +212,7 @@ public class IdentityHashService {
         }
         try {
             IdentityType type = IdentityType.valueOf(identityType.trim().toUpperCase(Locale.ROOT));
-            if (type == IdentityType.GOOGLE || type == IdentityType.APPLE) {
+            if (type == IdentityType.GOOGLE || type == IdentityType.APPLE || type == IdentityType.FACEBOOK) {
                 throw new UserBizException(UserErrorCode.USER_REQUEST_INVALID, "本阶段不支持第三方 OAuth 注册");
             }
             return type;

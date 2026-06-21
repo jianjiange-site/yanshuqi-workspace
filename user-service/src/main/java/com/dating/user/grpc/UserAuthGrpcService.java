@@ -1,17 +1,25 @@
 package com.dating.user.grpc;
 
+import com.dating.user.grpc.proto.DeviceInfo;
 import com.dating.user.dto.DeviceInfoCommand;
 import com.dating.user.dto.LoginCommand;
 import com.dating.user.dto.RegisterCommand;
-import com.dating.user.grpc.proto.DeviceInfo;
+import com.dating.user.dto.ResolveOrCreateDeviceUserCommand;
+import com.dating.user.dto.ResolveOrCreatePhoneUserCommand;
+import com.dating.user.dto.ResolveOrCreateThirdPartyUserCommand;
 import com.dating.user.grpc.proto.RegisterRequest;
 import com.dating.user.grpc.proto.RegisterResponse;
+import com.dating.user.grpc.proto.ResolveOrCreateDeviceUserRequest;
+import com.dating.user.grpc.proto.ResolveOrCreateLoginUserResponse;
+import com.dating.user.grpc.proto.ResolveOrCreatePhoneUserRequest;
+import com.dating.user.grpc.proto.ResolveOrCreateThirdPartyUserRequest;
 import com.dating.user.grpc.proto.UserAuthServiceGrpc;
 import com.dating.user.grpc.proto.VerifyLoginRequest;
 import com.dating.user.grpc.proto.VerifyLoginResponse;
 import com.dating.user.service.UserAuthService;
 import com.dating.user.vo.LoginResult;
 import com.dating.user.vo.RegisterResult;
+import com.dating.user.vo.ResolveOrCreateLoginUserResult;
 import com.google.protobuf.Timestamp;
 import io.grpc.stub.StreamObserver;
 import net.devh.boot.grpc.server.service.GrpcService;
@@ -71,6 +79,86 @@ public class UserAuthGrpcService extends UserAuthServiceGrpc.UserAuthServiceImpl
         VerifyLoginResponse response = toVerifyLoginResponse(result);
         responseObserver.onNext(response);
         responseObserver.onCompleted();
+    }
+
+    @Override
+    public void resolveOrCreateDeviceUser(ResolveOrCreateDeviceUserRequest request,
+                                          StreamObserver<ResolveOrCreateLoginUserResponse> responseObserver) {
+        ResolveOrCreateLoginUserResult result = userAuthService.resolveOrCreateDeviceUser(toDeviceUserCommand(request));
+        responseObserver.onNext(toResolveOrCreateResponse(result));
+        responseObserver.onCompleted();
+    }
+
+    @Override
+    public void resolveOrCreatePhoneUser(ResolveOrCreatePhoneUserRequest request,
+                                         StreamObserver<ResolveOrCreateLoginUserResponse> responseObserver) {
+        ResolveOrCreateLoginUserResult result = userAuthService.resolveOrCreatePhoneUser(toPhoneUserCommand(request));
+        responseObserver.onNext(toResolveOrCreateResponse(result));
+        responseObserver.onCompleted();
+    }
+
+    @Override
+    public void resolveOrCreateThirdPartyUser(ResolveOrCreateThirdPartyUserRequest request,
+                                              StreamObserver<ResolveOrCreateLoginUserResponse> responseObserver) {
+        ResolveOrCreateLoginUserResult result = userAuthService.resolveOrCreateThirdPartyUser(toThirdPartyUserCommand(request));
+        responseObserver.onNext(toResolveOrCreateResponse(result));
+        responseObserver.onCompleted();
+    }
+
+    private ResolveOrCreateDeviceUserCommand toDeviceUserCommand(ResolveOrCreateDeviceUserRequest request) {
+        ResolveOrCreateDeviceUserCommand command = new ResolveOrCreateDeviceUserCommand();
+        command.setDeviceId(request.getDeviceId());
+        command.setPlatform(request.getPlatform());
+        command.setDeviceModel(request.getDeviceModel());
+        command.setOsVersion(request.getOsVersion());
+        command.setAppVersion(request.getAppVersion());
+        command.setPushToken(request.getPushToken());
+        return command;
+    }
+
+    private ResolveOrCreatePhoneUserCommand toPhoneUserCommand(ResolveOrCreatePhoneUserRequest request) {
+        ResolveOrCreatePhoneUserCommand command = new ResolveOrCreatePhoneUserCommand();
+        command.setPhone(request.getPhone());
+        command.setSmsCode(request.getSmsCode());
+        command.setDeviceId(request.getDeviceId());
+        command.setPlatform(request.getPlatform());
+        command.setDeviceModel(request.getDeviceModel());
+        command.setOsVersion(request.getOsVersion());
+        command.setAppVersion(request.getAppVersion());
+        command.setPushToken(request.getPushToken());
+        return command;
+    }
+
+    private ResolveOrCreateThirdPartyUserCommand toThirdPartyUserCommand(ResolveOrCreateThirdPartyUserRequest request) {
+        ResolveOrCreateThirdPartyUserCommand command = new ResolveOrCreateThirdPartyUserCommand();
+        command.setThirdPartyPlatform(request.getThirdPartyPlatform());
+        command.setIdToken(request.getIdToken());
+        command.setGoogleEmail(request.getGoogleEmail());
+        command.setDeviceId(request.getDeviceId());
+        command.setPlatform(request.getPlatform());
+        command.setDeviceModel(request.getDeviceModel());
+        command.setOsVersion(request.getOsVersion());
+        command.setAppVersion(request.getAppVersion());
+        command.setPushToken(request.getPushToken());
+        return command;
+    }
+
+    private ResolveOrCreateLoginUserResponse toResolveOrCreateResponse(ResolveOrCreateLoginUserResult result) {
+        ResolveOrCreateLoginUserResponse.Builder builder = ResolveOrCreateLoginUserResponse.newBuilder()
+                .setUserId(result.getUserId())
+                .setNewlyCreated(result.isNewlyCreated())
+                .setPending(result.isPending())
+                .setAccountStatus(result.getAccountStatus())
+                .setProfileStatus(result.getProfileStatus())
+                .setTokenVersion(result.getTokenVersion());
+        if (result.getLastLoginAt() != null) {
+            Instant instant = result.getLastLoginAt().toInstant();
+            builder.setLastLoginAt(Timestamp.newBuilder()
+                    .setSeconds(instant.getEpochSecond())
+                    .setNanos(instant.getNano())
+                    .build());
+        }
+        return builder.build();
     }
 
     private RegisterCommand toRegisterCommand(RegisterRequest request) {

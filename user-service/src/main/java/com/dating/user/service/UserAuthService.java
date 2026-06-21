@@ -2,9 +2,13 @@ package com.dating.user.service;
 
 import com.dating.user.dto.LoginCommand;
 import com.dating.user.dto.RegisterCommand;
+import com.dating.user.dto.ResolveOrCreateDeviceUserCommand;
+import com.dating.user.dto.ResolveOrCreatePhoneUserCommand;
+import com.dating.user.dto.ResolveOrCreateThirdPartyUserCommand;
 import com.dating.user.exception.UserBizException;
 import com.dating.user.vo.LoginResult;
 import com.dating.user.vo.RegisterResult;
+import com.dating.user.vo.ResolveOrCreateLoginUserResult;
 
 /**
  * 用户认证业务服务。
@@ -28,4 +32,31 @@ public interface UserAuthService {
      * @throws UserBizException 当凭证不存在、密码错误、账号状态非法或写入失败时抛出
      */
     LoginResult verifyLogin(LoginCommand command);
+
+    /**
+     * 设备匿名登录：解析或创建设备身份用户，不签发 JWT。
+     *
+     * @param command 设备登录命令
+     * @return 解析或创建结果
+     * @throws UserBizException 当参数非法、账号状态非法或写入失败时抛出
+     */
+    ResolveOrCreateLoginUserResult resolveOrCreateDeviceUser(ResolveOrCreateDeviceUserCommand command);
+
+    /**
+     * 手机号登录：解析或创建手机号身份用户，不校验真实短信，不签发 JWT。
+     *
+     * @param command 手机号登录命令
+     * @return 解析或创建结果
+     * @throws UserBizException 当参数非法、账号状态非法或写入失败时抛出
+     */
+    ResolveOrCreateLoginUserResult resolveOrCreatePhoneUser(ResolveOrCreatePhoneUserCommand command);
+
+    /**
+     * 三方登录：解析或创建三方身份用户，不校验真实 OAuth，不签发 JWT。
+     *
+     * @param command 三方登录命令
+     * @return 解析或创建结果
+     * @throws UserBizException 当参数非法、账号状态非法或写入失败时抛出
+     */
+    ResolveOrCreateLoginUserResult resolveOrCreateThirdPartyUser(ResolveOrCreateThirdPartyUserCommand command);
 }

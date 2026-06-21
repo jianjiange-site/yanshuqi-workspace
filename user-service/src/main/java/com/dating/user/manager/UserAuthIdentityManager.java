@@ -100,6 +100,33 @@ public class UserAuthIdentityManager {
                                String identityValue,
                                String identityHash,
                                String passwordHash) {
+        createIdentityInternal(authId, userId, identityType, identityValue, identityHash, passwordHash, 0);
+    }
+
+    /**
+     * 创建登录来源身份记录，无密码哈希。
+     *
+     * @param authId         凭证业务主键
+     * @param userId         用户业务主键
+     * @param identityType   凭证类型
+     * @param identityValue  脱敏后的凭证值
+     * @param identityHash   凭证哈希
+     */
+    public void createLoginIdentity(long authId,
+                                    long userId,
+                                    String identityType,
+                                    String identityValue,
+                                    String identityHash) {
+        createIdentityInternal(authId, userId, identityType, identityValue, identityHash, null, 1);
+    }
+
+    private void createIdentityInternal(long authId,
+                                        long userId,
+                                        String identityType,
+                                        String identityValue,
+                                        String identityHash,
+                                        String passwordHash,
+                                        int verified) {
         if (authId <= 0 || userId <= 0) {
             throw new IllegalArgumentException("authId 或 userId 非法");
         }
@@ -110,7 +137,7 @@ public class UserAuthIdentityManager {
         entity.setIdentityValue(identityValue);
         entity.setIdentityHash(identityHash);
         entity.setPasswordHash(passwordHash);
-        entity.setVerified(0);
+        entity.setVerified(verified);
         entity.setCreatedAt(OffsetDateTime.now(ZoneOffset.UTC));
         entity.setUpdatedAt(OffsetDateTime.now(ZoneOffset.UTC));
         // 1. 执行单表插入

@@ -17,6 +17,9 @@ public enum RegisterSource {
     /** Apple 注册。 */
     APPLE,
 
+    /** Facebook 注册。 */
+    FACEBOOK,
+
     /** 设备号注册。 */
     DEVICE,
 

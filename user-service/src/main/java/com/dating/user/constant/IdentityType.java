@@ -17,6 +17,9 @@ public enum IdentityType {
     /** Apple 第三方登录。 */
     APPLE,
 
+    /** Facebook 第三方登录。 */
+    FACEBOOK,
+
     /** 设备号登录。 */
     DEVICE
 }

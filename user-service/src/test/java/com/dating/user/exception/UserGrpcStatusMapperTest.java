@@ -59,6 +59,22 @@ class UserGrpcStatusMapperTest {
     }
 
     /**
+     * 非法设备 ID 应映射 INVALID_ARGUMENT。
+     */
+    @Test
+    void invalidDeviceIdShouldMapToInvalidArgument() {
+        assertEquals(Status.Code.INVALID_ARGUMENT, UserGrpcStatusMapper.toStatus(UserErrorCode.INVALID_DEVICE_ID).getCode());
+    }
+
+    /**
+     * 三方身份非法应映射 UNAUTHENTICATED。
+     */
+    @Test
+    void invalidThirdPartyIdentityShouldMapToUnauthenticated() {
+        assertEquals(Status.Code.UNAUTHENTICATED, UserGrpcStatusMapper.toStatus(UserErrorCode.INVALID_THIRD_PARTY_IDENTITY).getCode());
+    }
+
+    /**
      * 未知异常映射 INTERNAL 且不泄露堆栈描述。
      */
     @Test

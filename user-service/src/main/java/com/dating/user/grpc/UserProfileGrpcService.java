@@ -4,8 +4,10 @@ import com.dating.user.dto.BatchGetBasicProfilesQuery;
 import com.dating.user.dto.BatchGetRecommendProfilesQuery;
 import com.dating.user.dto.BindPhotoCommand;
 import com.dating.user.dto.CheckUserAvailableQuery;
+import com.dating.user.dto.GetHomeCardProfileQuery;
 import com.dating.user.dto.ListUserPhotosQuery;
 import com.dating.user.dto.UpdateProfileCommand;
+import com.dating.user.dto.UpsertOnboardingCommand;
 import com.dating.user.grpc.proto.BatchGetBasicProfilesRequest;
 import com.dating.user.grpc.proto.BatchGetBasicProfilesResponse;
 import com.dating.user.grpc.proto.BatchGetRecommendProfilesRequest;
@@ -15,6 +17,14 @@ import com.dating.user.grpc.proto.BindUserPhotoRequest;
 import com.dating.user.grpc.proto.BindUserPhotoResponse;
 import com.dating.user.grpc.proto.CheckUserAvailableRequest;
 import com.dating.user.grpc.proto.CheckUserAvailableResponse;
+import com.dating.user.grpc.proto.GetHomeCardProfileRequest;
+import com.dating.user.grpc.proto.GetHomeCardProfileResponse;
+import com.dating.user.grpc.proto.GetUserProfileViewRequest;
+import com.dating.user.grpc.proto.GetUserProfileViewResponse;
+import com.dating.user.grpc.proto.UpsertOnboardingRequest;
+import com.dating.user.grpc.proto.UpsertOnboardingResponse;
+import com.dating.user.grpc.proto.AvatarView;
+import com.dating.user.grpc.proto.UserProfileView;
 import com.dating.user.grpc.proto.GetSelfProfileRequest;
 import com.dating.user.grpc.proto.GetSelfProfileResponse;
 import com.dating.user.grpc.proto.ListUserPhotosRequest;
@@ -26,15 +36,20 @@ import com.dating.user.grpc.proto.UserAvailableResult;
 import com.dating.user.grpc.proto.UserPhoto;
 import com.dating.user.grpc.proto.UserProfileDetail;
 import com.dating.user.grpc.proto.UserProfileServiceGrpc;
+import com.dating.user.service.UserHomeCardService;
 import com.dating.user.service.UserPhotoService;
 import com.dating.user.service.UserProfileQueryService;
 import com.dating.user.service.UserProfileService;
+import com.dating.user.exception.UserBizException;
+import com.dating.user.exception.UserErrorCode;
 import com.dating.user.vo.BasicUserProfileVO;
 import com.dating.user.vo.BindPhotoResult;
+import com.dating.user.vo.HomeCardProfileVO;
 import com.dating.user.vo.RecommendUserProfileVO;
 import com.dating.user.vo.UserAvailableVO;
 import com.dating.user.vo.UserPhotoVO;
 import com.dating.user.vo.UserProfileDetailVO;
+import com.dating.user.vo.UserProfileViewVO;
 import com.google.protobuf.Timestamp;
 import io.grpc.stub.StreamObserver;
 import net.devh.boot.grpc.server.service.GrpcService;
@@ -54,6 +69,7 @@ public class UserProfileGrpcService extends UserProfileServiceGrpc.UserProfileSe
     private final UserProfileService userProfileService;
     private final UserPhotoService userPhotoService;
     private final UserProfileQueryService userProfileQueryService;
+    private final UserHomeCardService userHomeCardService;
 
     /**
      * 构造用户资料 gRPC 服务。
@@ -61,13 +77,16 @@ public class UserProfileGrpcService extends UserProfileServiceGrpc.UserProfileSe
      * @param userProfileService      用户资料业务服务
      * @param userPhotoService        用户照片业务服务
      * @param userProfileQueryService 用户资料批量查询服务
+     * @param userHomeCardService     主页卡片查询服务
      */
     public UserProfileGrpcService(UserProfileService userProfileService,
                                   UserPhotoService userPhotoService,
-                                  UserProfileQueryService userProfileQueryService) {
+                                  UserProfileQueryService userProfileQueryService,
+                                  UserHomeCardService userHomeCardService) {
         this.userProfileService = userProfileService;
         this.userPhotoService = userPhotoService;
         this.userProfileQueryService = userProfileQueryService;
+        this.userHomeCardService = userHomeCardService;
     }
 
     /**
@@ -98,6 +117,44 @@ public class UserProfileGrpcService extends UserProfileServiceGrpc.UserProfileSe
         UserProfileDetailVO detail = userProfileService.updateProfile(command);
         UpdateProfileResponse response = UpdateProfileResponse.newBuilder()
                 .setProfile(toUserProfileDetail(detail))
+                .setSuccess(true)
+                .build();
+        responseObserver.onNext(response);
+        responseObserver.onCompleted();
+    }
+
+    @Override
+    public void upsertOnboarding(UpsertOnboardingRequest request, StreamObserver<UpsertOnboardingResponse> responseObserver) {
+        UserProfileViewVO view = userProfileService.upsertOnboarding(toUpsertOnboardingCommand(request));
+        responseObserver.onNext(UpsertOnboardingResponse.newBuilder()
+                .setProfile(toUserProfileView(view))
+                .build());
+        responseObserver.onCompleted();
+    }
+
+    @Override
+    public void getUserProfileView(GetUserProfileViewRequest request,
+                                   StreamObserver<GetUserProfileViewResponse> responseObserver) {
+        UserProfileViewVO view = userProfileService.getUserProfileView(request.getUserId());
+        responseObserver.onNext(GetUserProfileViewResponse.newBuilder()
+                .setProfile(toUserProfileView(view))
+                .build());
+        responseObserver.onCompleted();
+    }
+
+    @Override
+    public void getHomeCardProfile(GetHomeCardProfileRequest request,
+                                   StreamObserver<GetHomeCardProfileResponse> responseObserver) {
+        GetHomeCardProfileQuery query = new GetHomeCardProfileQuery();
+        query.setSelfUserId(request.getSelfUserId());
+        query.setTargetUserId(request.getTargetUserId());
+        HomeCardProfileVO card = userHomeCardService.getHomeCardProfile(query);
+        if (card.getTargetProfile() == null) {
+            throw new UserBizException(UserErrorCode.HOME_CARD_QUERY_FAILED);
+        }
+        GetHomeCardProfileResponse response = GetHomeCardProfileResponse.newBuilder()
+                .setSelfUserId(card.getSelfUserId() == null ? 0L : card.getSelfUserId())
+                .setTargetProfile(toUserProfileView(card.getTargetProfile()))
                 .build();
         responseObserver.onNext(response);
         responseObserver.onCompleted();
@@ -264,6 +321,54 @@ public class UserProfileGrpcService extends UserProfileServiceGrpc.UserProfileSe
         return query;
     }
 
+    private UpsertOnboardingCommand toUpsertOnboardingCommand(UpsertOnboardingRequest request) {
+        UpsertOnboardingCommand command = new UpsertOnboardingCommand();
+        command.setUserId(request.getUserId());
+        command.setNickname(emptyToNull(request.getNickname()));
+        command.setGender(emptyToNull(request.getGender()));
+        command.setBirthday(emptyToNull(request.getBirthday()));
+        if (request.hasAge()) {
+            command.setAge(request.getAge());
+        }
+        if (request.hasHeight()) {
+            command.setHeight(request.getHeight());
+        }
+        command.setBio(emptyToNull(request.getBio()));
+        command.setOccupation(emptyToNull(request.getOccupation()));
+        command.setEducation(emptyToNull(request.getEducation()));
+        command.setLocation(emptyToNull(request.getLocation()));
+        command.setDefaultAvatarObjectKey(emptyToNull(request.getDefaultAvatarObjectKey()));
+        return command;
+    }
+
+    private UserProfileView toUserProfileView(UserProfileViewVO view) {
+        UserProfileView.Builder builder = UserProfileView.newBuilder()
+                .setUserId(view.getUserId() == null ? 0L : view.getUserId())
+                .setNickname(defaultString(view.getNickname()))
+                .setAge(view.getAge() == null ? 0 : view.getAge())
+                .setGender(defaultString(view.getGender()))
+                .setHeight(view.getHeight() == null ? 0 : view.getHeight())
+                .setBio(defaultString(view.getBio()))
+                .setOccupation(defaultString(view.getOccupation()))
+                .setEducation(defaultString(view.getEducation()))
+                .setLocation(defaultString(view.getLocation()))
+                .setBirthday(defaultString(view.getBirthday()))
+                .addAllInterests(defaultList(view.getInterests()))
+                .setPending(view.isPending())
+                .setRegulationStatus(view.getRegulationStatus() == null ? 0 : view.getRegulationStatus())
+                .setLastOpenAtMs(view.getLastOpenAtMs() == null ? 0L : view.getLastOpenAtMs());
+        if (view.getAvatar() != null) {
+            builder.setAvatar(AvatarView.newBuilder()
+                    .setOriginalKey(defaultString(view.getAvatar().getOriginalKey()))
+                    .setMinKey(defaultString(view.getAvatar().getMinKey()))
+                    .setMidKey(defaultString(view.getAvatar().getMidKey()))
+                    .setWidth(view.getAvatar().getWidth())
+                    .setHeight(view.getAvatar().getHeight())
+                    .build());
+        }
+        return builder.build();
+    }
+
     private UpdateProfileCommand toUpdateProfileCommand(UpdateProfileRequest request) {
         UpdateProfileCommand command = new UpdateProfileCommand();
         command.setUserId(request.getUserId());
@@ -275,6 +380,17 @@ public class UserProfileGrpcService extends UserProfileServiceGrpc.UserProfileSe
         command.setLanguageCodes(copyList(request.getLanguageCodesList()));
         command.setBio(emptyToNull(request.getBio()));
         command.setInterests(copyList(request.getInterestsList()));
+        if (request.hasAge()) {
+            command.setAgePresent(true);
+            command.setAge(request.getAge());
+        }
+        if (request.hasHeight()) {
+            command.setHeightPresent(true);
+            command.setHeight(request.getHeight());
+        }
+        command.setOccupation(emptyToNull(request.getOccupation()));
+        command.setEducation(emptyToNull(request.getEducation()));
+        command.setLocation(emptyToNull(request.getLocation()));
         return command;
     }
 

@@ -62,6 +62,19 @@ minio:
   region: ${MINIO_REGION:us-east-1}
   path-style-access: ${MINIO_PATH_STYLE_ACCESS:true}
 
+avatar:
+  upload:
+    allowed-ext: jpg,jpeg,png,webp
+    max-size-bytes: 10485760
+    presign-expire-seconds: 600
+    object-key-prefix: avatar
+
+object:
+  storage:
+    mode: ${OBJECT_STORAGE_MODE:mock}
+    bucket: ${MINIO_BUCKET:dating-yanshuqi}
+    public-base-url: ${OBJECT_STORAGE_PUBLIC_BASE_URL:}
+
 rocketmq:
   name-server: ${ROCKETMQ_NAME_SERVER:}
   access-key: ${ROCKETMQ_ACCESS_KEY:}

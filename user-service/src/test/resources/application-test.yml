@@ -38,6 +38,19 @@ minio:
   region: us-east-1
   path-style-access: true
 
+avatar:
+  upload:
+    allowed-ext: jpg,jpeg,png,webp
+    max-size-bytes: 10485760
+    presign-expire-seconds: 600
+    object-key-prefix: avatar
+
+object:
+  storage:
+    mode: mock
+    bucket: dating-yanshuqi
+    public-base-url: mock://object-storage
+
 grpc:
   server:
     port: -1

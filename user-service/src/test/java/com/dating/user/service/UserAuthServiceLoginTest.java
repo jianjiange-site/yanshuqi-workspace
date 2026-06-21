@@ -18,8 +18,10 @@ import com.dating.user.manager.UserSettingsManager;
 import com.dating.user.service.impl.UserAuthServiceImpl;
 import com.dating.user.service.support.BusinessIdGenerator;
 import com.dating.user.service.support.IdentityHashService;
+import com.dating.user.service.support.LoginPendingCalculator;
 import com.dating.user.service.support.PasswordHashService;
 import com.dating.user.service.support.SlowCallLogger;
+import com.dating.user.service.support.SmsCodeValidator;
 import com.dating.user.vo.LoginResult;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -100,7 +102,9 @@ class UserAuthServiceLoginTest {
                 identityHashService,
                 passwordHashService,
                 businessIdGenerator,
-                SlowCallLogger.forTest()
+                SlowCallLogger.forTest(),
+                new LoginPendingCalculator(),
+                new SmsCodeValidator()
         );
     }
 

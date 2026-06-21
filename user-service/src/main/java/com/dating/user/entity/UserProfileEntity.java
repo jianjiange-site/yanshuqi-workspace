@@ -45,6 +45,20 @@ public class UserProfileEntity {
 
     private Integer profileCompleted;
 
+    private Integer age;
+
+    private Integer height;
+
+    private String occupation;
+
+    private String education;
+
+    private String location;
+
+    private Integer regulationStatus;
+
+    private OffsetDateTime lastOpenAt;
+
     private OffsetDateTime createdAt;
 
     private OffsetDateTime updatedAt;
@@ -302,6 +316,62 @@ public class UserProfileEntity {
      */
     public void setProfileCompleted(Integer profileCompleted) {
         this.profileCompleted = profileCompleted;
+    }
+
+    public Integer getAge() {
+        return age;
+    }
+
+    public void setAge(Integer age) {
+        this.age = age;
+    }
+
+    public Integer getHeight() {
+        return height;
+    }
+
+    public void setHeight(Integer height) {
+        this.height = height;
+    }
+
+    public String getOccupation() {
+        return occupation;
+    }
+
+    public void setOccupation(String occupation) {
+        this.occupation = occupation;
+    }
+
+    public String getEducation() {
+        return education;
+    }
+
+    public void setEducation(String education) {
+        this.education = education;
+    }
+
+    public String getLocation() {
+        return location;
+    }
+
+    public void setLocation(String location) {
+        this.location = location;
+    }
+
+    public Integer getRegulationStatus() {
+        return regulationStatus;
+    }
+
+    public void setRegulationStatus(Integer regulationStatus) {
+        this.regulationStatus = regulationStatus;
+    }
+
+    public OffsetDateTime getLastOpenAt() {
+        return lastOpenAt;
+    }
+
+    public void setLastOpenAt(OffsetDateTime lastOpenAt) {
+        this.lastOpenAt = lastOpenAt;
     }
 
     /**

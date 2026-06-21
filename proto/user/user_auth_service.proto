@@ -14,6 +14,12 @@ service UserAuthService {
   rpc Register(RegisterRequest) returns (RegisterResponse);
   // 校验登录凭证与密码，更新设备与最近登录时间，不签发 JWT。
   rpc VerifyLogin(VerifyLoginRequest) returns (VerifyLoginResponse);
+  // 设备匿名登录：解析或创建设备身份用户，不签发 JWT。
+  rpc ResolveOrCreateDeviceUser(ResolveOrCreateDeviceUserRequest) returns (ResolveOrCreateLoginUserResponse);
+  // 手机号登录：解析或创建手机号身份用户，不校验真实短信，不签发 JWT。
+  rpc ResolveOrCreatePhoneUser(ResolveOrCreatePhoneUserRequest) returns (ResolveOrCreateLoginUserResponse);
+  // 三方登录：解析或创建三方身份用户，不校验真实 OAuth，不签发 JWT。
+  rpc ResolveOrCreateThirdPartyUser(ResolveOrCreateThirdPartyUserRequest) returns (ResolveOrCreateLoginUserResponse);
 }
 
 // 注册请求。
@@ -32,6 +38,41 @@ message VerifyLoginRequest {
   string identity_value = 2;
   string password = 3;
   DeviceInfo device_info = 4;
+}
+
+// 设备匿名登录请求。
+message ResolveOrCreateDeviceUserRequest {
+  string device_id = 1;
+  string platform = 2;
+  string device_model = 3;
+  string os_version = 4;
+  string app_version = 5;
+  string push_token = 6;
+}
+
+// 手机号登录请求。
+message ResolveOrCreatePhoneUserRequest {
+  string phone = 1;
+  string sms_code = 2;
+  string device_id = 3;
+  string platform = 4;
+  string device_model = 5;
+  string os_version = 6;
+  string app_version = 7;
+  string push_token = 8;
+}
+
+// 三方登录请求。
+message ResolveOrCreateThirdPartyUserRequest {
+  int32 third_party_platform = 1;
+  string id_token = 2;
+  string google_email = 3;
+  string device_id = 4;
+  string platform = 5;
+  string device_model = 6;
+  string os_version = 7;
+  string app_version = 8;
+  string push_token = 9;
 }
 
 // 设备信息。
@@ -57,4 +98,15 @@ message VerifyLoginResponse {
   string profile_status = 3;
   int32 token_version = 4;
   google.protobuf.Timestamp last_login_at = 5;
+}
+
+// 登录来源解析或创建用户统一响应，供 gateway 签发 JWT，不包含 token 与敏感字段。
+message ResolveOrCreateLoginUserResponse {
+  int64 user_id = 1;
+  bool newly_created = 2;
+  bool pending = 3;
+  string account_status = 4;
+  string profile_status = 5;
+  int32 token_version = 6;
+  google.protobuf.Timestamp last_login_at = 7;
 }

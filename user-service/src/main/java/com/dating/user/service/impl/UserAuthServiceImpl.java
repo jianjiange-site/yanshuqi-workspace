@@ -3,14 +3,20 @@ package com.dating.user.service.impl;
 import com.dating.user.constant.AccountStatus;
 import com.dating.user.constant.DevicePlatform;
 import com.dating.user.constant.ProfileStatus;
+import com.dating.user.constant.IdentityType;
 import com.dating.user.constant.RegisterSource;
+import com.dating.user.constant.ThirdPartyPlatform;
 import com.dating.user.constant.UserType;
 import com.dating.user.dto.DeviceInfoCommand;
 import com.dating.user.dto.LoginCommand;
 import com.dating.user.dto.RegisterCommand;
+import com.dating.user.dto.ResolveOrCreateDeviceUserCommand;
+import com.dating.user.dto.ResolveOrCreatePhoneUserCommand;
+import com.dating.user.dto.ResolveOrCreateThirdPartyUserCommand;
 import com.dating.user.entity.UserAuthIdentityEntity;
 import com.dating.user.entity.UserDeviceEntity;
 import com.dating.user.entity.UserEntity;
+import com.dating.user.entity.UserProfileEntity;
 import com.dating.user.exception.UserBizException;
 import com.dating.user.exception.UserErrorCode;
 import com.dating.user.manager.UserAuthIdentityManager;
@@ -21,10 +27,13 @@ import com.dating.user.manager.UserSettingsManager;
 import com.dating.user.service.UserAuthService;
 import com.dating.user.service.support.BusinessIdGenerator;
 import com.dating.user.service.support.IdentityHashService;
+import com.dating.user.service.support.LoginPendingCalculator;
 import com.dating.user.service.support.PasswordHashService;
 import com.dating.user.service.support.SlowCallLogger;
+import com.dating.user.service.support.SmsCodeValidator;
 import com.dating.user.vo.LoginResult;
 import com.dating.user.vo.RegisterResult;
+import com.dating.user.vo.ResolveOrCreateLoginUserResult;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.context.annotation.Profile;
@@ -54,6 +63,8 @@ public class UserAuthServiceImpl implements UserAuthService {
     private final PasswordHashService passwordHashService;
     private final BusinessIdGenerator businessIdGenerator;
     private final SlowCallLogger slowCallLogger;
+    private final LoginPendingCalculator loginPendingCalculator;
+    private final SmsCodeValidator smsCodeValidator;
 
     /**
      * 构造用户认证业务服务。
@@ -67,6 +78,8 @@ public class UserAuthServiceImpl implements UserAuthService {
      * @param passwordHashService      密码哈希服务
      * @param businessIdGenerator      业务主键生成器
      * @param slowCallLogger           慢调用日志记录器
+     * @param loginPendingCalculator   pending 计算器
+     * @param smsCodeValidator         短信验证码校验入口
      */
     public UserAuthServiceImpl(UserManager userManager,
                                UserAuthIdentityManager userAuthIdentityManager,
@@ -76,7 +89,9 @@ public class UserAuthServiceImpl implements UserAuthService {
                                IdentityHashService identityHashService,
                                PasswordHashService passwordHashService,
                                BusinessIdGenerator businessIdGenerator,
-                               SlowCallLogger slowCallLogger) {
+                               SlowCallLogger slowCallLogger,
+                               LoginPendingCalculator loginPendingCalculator,
+                               SmsCodeValidator smsCodeValidator) {
         this.userManager = userManager;
         this.userAuthIdentityManager = userAuthIdentityManager;
         this.userProfileManager = userProfileManager;
@@ -86,6 +101,8 @@ public class UserAuthServiceImpl implements UserAuthService {
         this.passwordHashService = passwordHashService;
         this.businessIdGenerator = businessIdGenerator;
         this.slowCallLogger = slowCallLogger;
+        this.loginPendingCalculator = loginPendingCalculator;
+        this.smsCodeValidator = smsCodeValidator;
     }
 
     /**
@@ -253,6 +270,232 @@ public class UserAuthServiceImpl implements UserAuthService {
         } finally {
             slowCallLogger.logIfSlow("verifyLogin", startNano, resultUserId, success, errorCode);
         }
+    }
+
+    /**
+     * 设备匿名登录：按 deviceId + platform 解析或创建用户，不签发 JWT。
+     */
+    @Override
+    @Transactional(rollbackFor = Exception.class)
+    public ResolveOrCreateLoginUserResult resolveOrCreateDeviceUser(ResolveOrCreateDeviceUserCommand command) {
+        long startNano = System.nanoTime();
+        boolean success = true;
+        String errorCode = null;
+        Long resultUserId = null;
+        try {
+            if (command == null) {
+                throw new UserBizException(UserErrorCode.USER_REQUEST_INVALID, "设备登录命令不能为空");
+            }
+            // 1. 凭证归一化：deviceId + platform 组合作为 DEVICE 身份，禁止明文作为查询主键
+            String normalizedDeviceId = identityHashService.normalizeDeviceId(command.getDeviceId());
+            identityHashService.parsePlatform(command.getPlatform());
+            String normalizedIdentity = identityHashService.normalizeDeviceLoginIdentity(command.getPlatform(), normalizedDeviceId);
+            String identityType = IdentityType.DEVICE.name();
+            String identityHash = identityHashService.hash(identityType, normalizedIdentity);
+            DeviceInfoCommand deviceInfo = toDeviceInfo(command.getPlatform(), normalizedDeviceId,
+                    command.getPushToken(), command.getAppVersion());
+
+            ResolveOrCreateLoginUserResult result = resolveOrCreateIdentityUser(
+                    identityType, normalizedIdentity, identityHash, RegisterSource.DEVICE, deviceInfo);
+            resultUserId = result.getUserId();
+            log.info("设备匿名登录成功, userId={}, identityType={}, newlyCreated={}, deviceId={}",
+                    resultUserId, identityType, result.isNewlyCreated(),
+                    identityHashService.maskDeviceIdForLog(normalizedDeviceId));
+            return result;
+        } catch (UserBizException ex) {
+            success = false;
+            errorCode = ex.getErrorCode().getCode();
+            throw ex;
+        } finally {
+            slowCallLogger.logIfSlow("resolveOrCreateDeviceUser", startNano, resultUserId, success, errorCode);
+        }
+    }
+
+    /**
+     * 手机号登录：解析或创建 PHONE 身份用户，不校验真实短信，不签发 JWT。
+     */
+    @Override
+    @Transactional(rollbackFor = Exception.class)
+    public ResolveOrCreateLoginUserResult resolveOrCreatePhoneUser(ResolveOrCreatePhoneUserCommand command) {
+        long startNano = System.nanoTime();
+        boolean success = true;
+        String errorCode = null;
+        Long resultUserId = null;
+        try {
+            if (command == null) {
+                throw new UserBizException(UserErrorCode.USER_REQUEST_INVALID, "手机号登录命令不能为空");
+            }
+            // 1. 短信验证码校验入口，本阶段不做真实短信校验
+            smsCodeValidator.validate(command.getSmsCode());
+            // 2. 手机号归一化后生成 identity_hash，禁止明文查询
+            String normalizedPhone = identityHashService.normalizePhoneLoginIdentity(command.getPhone());
+            String identityType = IdentityType.PHONE.name();
+            String identityHash = identityHashService.hash(identityType, normalizedPhone);
+            String normalizedDeviceId = identityHashService.normalizeDeviceId(command.getDeviceId());
+            identityHashService.parsePlatform(command.getPlatform());
+            DeviceInfoCommand deviceInfo = toDeviceInfo(command.getPlatform(), normalizedDeviceId,
+                    command.getPushToken(), command.getAppVersion());
+
+            ResolveOrCreateLoginUserResult result = resolveOrCreateIdentityUser(
+                    identityType, normalizedPhone, identityHash, RegisterSource.PHONE, deviceInfo);
+            resultUserId = result.getUserId();
+            log.info("手机号登录成功, userId={}, identityType={}, newlyCreated={}",
+                    resultUserId, identityType, result.isNewlyCreated());
+            return result;
+        } catch (UserBizException ex) {
+            success = false;
+            errorCode = ex.getErrorCode().getCode();
+            throw ex;
+        } finally {
+            slowCallLogger.logIfSlow("resolveOrCreatePhoneUser", startNano, resultUserId, success, errorCode);
+        }
+    }
+
+    /**
+     * 三方登录：解析或创建 GOOGLE / APPLE / FACEBOOK 身份用户，不校验真实 OAuth，不签发 JWT。
+     */
+    @Override
+    @Transactional(rollbackFor = Exception.class)
+    public ResolveOrCreateLoginUserResult resolveOrCreateThirdPartyUser(ResolveOrCreateThirdPartyUserCommand command) {
+        long startNano = System.nanoTime();
+        boolean success = true;
+        String errorCode = null;
+        Long resultUserId = null;
+        try {
+            if (command == null) {
+                throw new UserBizException(UserErrorCode.USER_REQUEST_INVALID, "三方登录命令不能为空");
+            }
+            ThirdPartyPlatform thirdPartyPlatform = ThirdPartyPlatform.fromPlatformCode(command.getThirdPartyPlatform());
+            // 1. idToken 哈希作为稳定 identity，禁止明文入库或打印；googleEmail 仅辅助，不参与主键
+            String normalizedIdentity = identityHashService.normalizeThirdPartyIdentity(command.getIdToken());
+            String identityType = thirdPartyPlatform.getIdentityType().name();
+            String identityHash = identityHashService.hash(identityType, normalizedIdentity);
+            String normalizedDeviceId = identityHashService.normalizeDeviceId(command.getDeviceId());
+            identityHashService.parsePlatform(command.getPlatform());
+            DeviceInfoCommand deviceInfo = toDeviceInfo(command.getPlatform(), normalizedDeviceId,
+                    command.getPushToken(), command.getAppVersion());
+
+            ResolveOrCreateLoginUserResult result = resolveOrCreateIdentityUser(
+                    identityType, normalizedIdentity, identityHash,
+                    thirdPartyPlatform.getRegisterSource(), deviceInfo);
+            resultUserId = result.getUserId();
+            log.info("三方登录成功, userId={}, identityType={}, newlyCreated={}",
+                    resultUserId, identityType, result.isNewlyCreated());
+            return result;
+        } catch (UserBizException ex) {
+            success = false;
+            errorCode = ex.getErrorCode().getCode();
+            throw ex;
+        } finally {
+            slowCallLogger.logIfSlow("resolveOrCreateThirdPartyUser", startNano, resultUserId, success, errorCode);
+        }
+    }
+
+    /**
+     * 登录来源统一编排：查询或创建身份用户、upsert 设备、更新 last_login_at、计算 pending。
+     */
+    private ResolveOrCreateLoginUserResult resolveOrCreateIdentityUser(String identityType,
+                                                                         String normalizedIdentity,
+                                                                         String identityHash,
+                                                                         RegisterSource registerSource,
+                                                                         DeviceInfoCommand deviceInfo) {
+        String maskedIdentityValue = identityHashService.maskForStorage(identityType, normalizedIdentity);
+        UserAuthIdentityEntity authIdentity = userAuthIdentityManager.findByIdentityTypeAndHash(identityType, identityHash);
+        boolean newlyCreated = false;
+        UserEntity userEntity;
+        long authId;
+
+        if (authIdentity == null) {
+            // 首次登录：本地事务创建 users / auth / profile / settings
+            newlyCreated = true;
+            long userId = businessIdGenerator.nextId();
+            authId = businessIdGenerator.nextId();
+            long profileId = businessIdGenerator.nextId();
+            long settingId = businessIdGenerator.nextId();
+            try {
+                userEntity = buildLoginUserEntity(userId, registerSource);
+                userManager.createUser(userEntity);
+                userAuthIdentityManager.createLoginIdentity(authId, userId, identityType, maskedIdentityValue, identityHash);
+                userProfileManager.createDefaultProfile(profileId, userId);
+                userSettingsManager.createDefaultSettings(settingId, userId);
+            } catch (DuplicateKeyException ex) {
+                log.warn("登录来源创建唯一索引冲突, identityType={}, errorCode={}",
+                        identityType, UserErrorCode.USER_CONCURRENT_CONFLICT.getCode());
+                authIdentity = userAuthIdentityManager.findByIdentityTypeAndHash(identityType, identityHash);
+                if (authIdentity == null) {
+                    throw new UserBizException(UserErrorCode.USER_CONCURRENT_CONFLICT);
+                }
+                newlyCreated = false;
+                userEntity = loadUserOrThrow(authIdentity.getUserId());
+                authId = authIdentity.getAuthId();
+            }
+        } else {
+            userEntity = loadUserOrThrow(authIdentity.getUserId());
+            authId = authIdentity.getAuthId();
+        }
+
+        validateAccountStatus(userEntity.getAccountStatus());
+
+        String platform = deviceInfo.getPlatform().trim().toUpperCase();
+        String deviceFingerprint = deviceInfo.getDeviceFingerprint();
+        String pushTokenHash = identityHashService.hashPushToken(deviceInfo.getPushToken());
+        String appVersion = StringUtils.hasText(deviceInfo.getAppVersion()) ? deviceInfo.getAppVersion().trim() : null;
+        OffsetDateTime lastLoginAt = OffsetDateTime.now(ZoneOffset.UTC);
+        long userId = userEntity.getUserId();
+
+        try {
+            // upsert user_devices：同 user_id + device_fingerprint 不重复创建
+            upsertUserDevice(userId, platform, deviceFingerprint, pushTokenHash, appVersion, lastLoginAt);
+            userManager.updateLastLoginAt(userId, lastLoginAt);
+            userAuthIdentityManager.updateLastLoginAt(authId, lastLoginAt);
+        } catch (DuplicateKeyException ex) {
+            log.warn("登录来源设备唯一索引冲突, userId={}, errorCode={}",
+                    userId, UserErrorCode.USER_CONCURRENT_CONFLICT.getCode());
+            throw new UserBizException(UserErrorCode.USER_CONCURRENT_CONFLICT);
+        }
+
+        // pending 根据 profile_status / profile_completed 计算
+        UserProfileEntity profileEntity = userProfileManager.findByUserId(userId);
+        Integer profileCompleted = profileEntity != null ? profileEntity.getProfileCompleted() : 0;
+        boolean pending = loginPendingCalculator.computePending(userEntity.getProfileStatus(), profileCompleted);
+
+        ResolveOrCreateLoginUserResult result = new ResolveOrCreateLoginUserResult();
+        result.setUserId(userId);
+        result.setNewlyCreated(newlyCreated);
+        result.setPending(pending);
+        result.setAccountStatus(userEntity.getAccountStatus());
+        result.setProfileStatus(userEntity.getProfileStatus());
+        result.setTokenVersion(userEntity.getTokenVersion());
+        result.setLastLoginAt(lastLoginAt);
+        return result;
+    }
+
+    private UserEntity loadUserOrThrow(long userId) {
+        UserEntity userEntity = userManager.findByUserId(userId);
+        if (userEntity == null) {
+            throw new UserBizException(UserErrorCode.USER_NOT_FOUND);
+        }
+        return userEntity;
+    }
+
+    private DeviceInfoCommand toDeviceInfo(String platform, String deviceId, String pushToken, String appVersion) {
+        DeviceInfoCommand deviceInfo = new DeviceInfoCommand();
+        deviceInfo.setPlatform(platform);
+        deviceInfo.setDeviceFingerprint(deviceId);
+        deviceInfo.setPushToken(pushToken);
+        deviceInfo.setAppVersion(appVersion);
+        return deviceInfo;
+    }
+
+    private UserEntity buildLoginUserEntity(long userId, RegisterSource registerSource) {
+        UserEntity entity = new UserEntity();
+        entity.setUserId(userId);
+        entity.setUserType(UserType.BH.name());
+        entity.setAccountStatus(AccountStatus.ACTIVE.name());
+        entity.setProfileStatus(ProfileStatus.INIT.name());
+        entity.setRegisterSource(registerSource.name());
+        entity.setTokenVersion(1);
+        return entity;
     }
 
     private void upsertUserDevice(long userId,

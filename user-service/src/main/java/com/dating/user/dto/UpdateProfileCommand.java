@@ -26,6 +26,22 @@ public class UpdateProfileCommand {
 
     private List<String> interests;
 
+    private Integer age;
+
+    private Integer height;
+
+    private String occupation;
+
+    private String education;
+
+    private String location;
+
+    /** 是否携带 age 字段（Swagger 日常更新 merge 语义）。 */
+    private boolean agePresent;
+
+    /** 是否携带 height 字段。 */
+    private boolean heightPresent;
+
     /**
      * 获取用户业务主键。
      *
@@ -186,5 +202,61 @@ public class UpdateProfileCommand {
      */
     public void setInterests(List<String> interests) {
         this.interests = interests;
+    }
+
+    public Integer getAge() {
+        return age;
+    }
+
+    public void setAge(Integer age) {
+        this.age = age;
+    }
+
+    public Integer getHeight() {
+        return height;
+    }
+
+    public void setHeight(Integer height) {
+        this.height = height;
+    }
+
+    public String getOccupation() {
+        return occupation;
+    }
+
+    public void setOccupation(String occupation) {
+        this.occupation = occupation;
+    }
+
+    public String getEducation() {
+        return education;
+    }
+
+    public void setEducation(String education) {
+        this.education = education;
+    }
+
+    public String getLocation() {
+        return location;
+    }
+
+    public void setLocation(String location) {
+        this.location = location;
+    }
+
+    public boolean isAgePresent() {
+        return agePresent;
+    }
+
+    public void setAgePresent(boolean agePresent) {
+        this.agePresent = agePresent;
+    }
+
+    public boolean isHeightPresent() {
+        return heightPresent;
+    }
+
+    public void setHeightPresent(boolean heightPresent) {
+        this.heightPresent = heightPresent;
     }
 }

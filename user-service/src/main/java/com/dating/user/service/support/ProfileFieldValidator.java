@@ -2,6 +2,7 @@ package com.dating.user.service.support;
 
 import com.dating.user.constant.Gender;
 import com.dating.user.dto.UpdateProfileCommand;
+import com.dating.user.dto.UpsertOnboardingCommand;
 import com.dating.user.exception.UserBizException;
 import com.dating.user.exception.UserErrorCode;
 import org.springframework.stereotype.Component;
@@ -38,11 +39,22 @@ public class ProfileFieldValidator {
 
     private static final int MAX_AGE = 100;
 
+    private static final int OCCUPATION_MAX_LENGTH = 128;
+
+    private static final int EDUCATION_MAX_LENGTH = 128;
+
+    private static final int LOCATION_MAX_LENGTH = 256;
+
+    private static final int MAX_HEIGHT_CM = 300;
+
+    private final ProfileBirthdayParser profileBirthdayParser;
+
+    public ProfileFieldValidator(ProfileBirthdayParser profileBirthdayParser) {
+        this.profileBirthdayParser = profileBirthdayParser;
+    }
+
     /**
      * 校验并规范化更新资料命令中的字段。
-     *
-     * @param command 更新资料命令
-     * @throws UserBizException 当字段非法时
      */
     public void validateAndNormalize(UpdateProfileCommand command) {
         if (command == null || command.getUserId() == null || command.getUserId() <= 0) {
@@ -56,6 +68,121 @@ public class ProfileFieldValidator {
         command.setLanguageCodes(normalizeLanguageCodes(command.getLanguageCodes()));
         command.setBio(normalizeOptionalText(command.getBio(), BIO_MAX_LENGTH, "个人简介"));
         command.setInterests(normalizeInterests(command.getInterests()));
+        validateSwaggerNumericFields(command);
+        command.setOccupation(normalizeOptionalText(command.getOccupation(), OCCUPATION_MAX_LENGTH, "职业"));
+        command.setEducation(normalizeOptionalText(command.getEducation(), EDUCATION_MAX_LENGTH, "学历"));
+        command.setLocation(normalizeOptionalText(command.getLocation(), LOCATION_MAX_LENGTH, "位置"));
+    }
+
+    /**
+     * 校验并规范化 Onboarding 命令。
+     */
+    public void validateAndNormalizeOnboarding(UpsertOnboardingCommand command) {
+        if (command == null || command.getUserId() == null || command.getUserId() <= 0) {
+            throw new UserBizException(UserErrorCode.USER_REQUEST_INVALID, "用户 ID 非法");
+        }
+        command.setNickname(normalizeNickname(command.getNickname()));
+        command.setGender(normalizeGenderStrict(command.getGender()));
+        command.setBirthday(normalizeBirthdayString(command.getBirthday()));
+        command.setAge(validateNonNegativeAge(command.getAge()));
+        command.setHeight(validateNonNegativeHeight(command.getHeight()));
+        command.setBio(normalizeBio(command.getBio()));
+        command.setOccupation(normalizeOptionalText(command.getOccupation(), OCCUPATION_MAX_LENGTH, "职业"));
+        command.setEducation(normalizeOptionalText(command.getEducation(), EDUCATION_MAX_LENGTH, "学历"));
+        command.setLocation(normalizeOptionalText(command.getLocation(), LOCATION_MAX_LENGTH, "位置"));
+        command.setDefaultAvatarObjectKey(normalizeOptionalText(
+                command.getDefaultAvatarObjectKey(), 512, "默认头像 object key"));
+    }
+
+    /**
+     * 解析 Onboarding birthday 为 LocalDate，兼容 yyyy-MM-dd / yyyy/MM/dd。
+     */
+    public LocalDate parseOnboardingBirthday(UpsertOnboardingCommand command) {
+        if (command == null || !StringUtils.hasText(command.getBirthday())) {
+            return null;
+        }
+        LocalDate birthDate = profileBirthdayParser.parse(command.getBirthday());
+        validateBirthDateRange(birthDate);
+        return birthDate;
+    }
+
+    private void validateSwaggerNumericFields(UpdateProfileCommand command) {
+        if (command.isAgePresent()) {
+            command.setAge(validateNonNegativeAge(command.getAge()));
+        }
+        if (command.isHeightPresent()) {
+            command.setHeight(validateNonNegativeHeight(command.getHeight()));
+        }
+    }
+
+    private String normalizeNickname(String nickname) {
+        try {
+            return normalizeOptionalText(nickname, NICKNAME_MAX_LENGTH, "昵称");
+        } catch (UserBizException ex) {
+            throw new UserBizException(UserErrorCode.INVALID_NICKNAME);
+        }
+    }
+
+    private String normalizeBio(String bio) {
+        try {
+            return normalizeOptionalText(bio, BIO_MAX_LENGTH, "个人简介");
+        } catch (UserBizException ex) {
+            throw new UserBizException(UserErrorCode.INVALID_BIO);
+        }
+    }
+
+    private String normalizeGenderStrict(String gender) {
+        if (!StringUtils.hasText(gender)) {
+            return null;
+        }
+        try {
+            return Gender.valueOf(gender.trim().toUpperCase()).name();
+        } catch (IllegalArgumentException ex) {
+            throw new UserBizException(UserErrorCode.INVALID_GENDER);
+        }
+    }
+
+    private String normalizeBirthdayString(String birthday) {
+        if (!StringUtils.hasText(birthday)) {
+            return null;
+        }
+        LocalDate parsed = profileBirthdayParser.parse(birthday);
+        validateBirthDateRange(parsed);
+        return profileBirthdayParser.format(parsed);
+    }
+
+    private Integer validateNonNegativeAge(Integer age) {
+        if (age == null) {
+            return null;
+        }
+        if (age < 0 || age > MAX_AGE) {
+            throw new UserBizException(UserErrorCode.INVALID_AGE);
+        }
+        return age;
+    }
+
+    private Integer validateNonNegativeHeight(Integer height) {
+        if (height == null) {
+            return null;
+        }
+        if (height < 0 || height > MAX_HEIGHT_CM) {
+            throw new UserBizException(UserErrorCode.INVALID_HEIGHT);
+        }
+        return height;
+    }
+
+    private void validateBirthDateRange(LocalDate birthDate) {
+        if (birthDate == null) {
+            return;
+        }
+        LocalDate today = LocalDate.now();
+        if (birthDate.isAfter(today)) {
+            throw new UserBizException(UserErrorCode.INVALID_BIRTHDAY);
+        }
+        int age = Period.between(birthDate, today).getYears();
+        if (age < MIN_AGE || age > MAX_AGE) {
+            throw new UserBizException(UserErrorCode.INVALID_BIRTHDAY);
+        }
     }
 
     private String normalizeOptionalText(String value, int maxLength, String fieldName) {
@@ -84,14 +211,7 @@ public class ProfileFieldValidator {
         if (birthDate == null) {
             return null;
         }
-        LocalDate today = LocalDate.now();
-        if (birthDate.isAfter(today)) {
-            throw new UserBizException(UserErrorCode.PROFILE_UPDATE_INVALID, "出生日期不能是未来日期");
-        }
-        int age = Period.between(birthDate, today).getYears();
-        if (age < MIN_AGE || age > MAX_AGE) {
-            throw new UserBizException(UserErrorCode.PROFILE_UPDATE_INVALID, "年龄需在 18 到 100 岁之间");
-        }
+        validateBirthDateRange(birthDate);
         return birthDate;
     }
 

@@ -2,6 +2,7 @@ package com.dating.user.service.impl;
 
 import com.dating.user.constant.AccountStatus;
 import com.dating.user.dto.UpdateProfileCommand;
+import com.dating.user.dto.UpsertOnboardingCommand;
 import com.dating.user.entity.UserEntity;
 import com.dating.user.entity.UserProfileEntity;
 import com.dating.user.exception.UserBizException;
@@ -14,14 +15,18 @@ import com.dating.user.service.support.ProfileCompletionCalculator;
 import com.dating.user.service.support.ProfileFieldValidator;
 import com.dating.user.service.support.ProfileJsonSupport;
 import com.dating.user.service.support.ProfileStatusResolver;
+import com.dating.user.service.support.ProfileViewConverter;
 import com.dating.user.service.support.SlowCallLogger;
 import com.dating.user.vo.UserProfileDetailVO;
+import com.dating.user.vo.UserProfileViewVO;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.context.annotation.Profile;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.util.StringUtils;
+
+import java.time.LocalDate;
 
 /**
  * 用户资料业务服务实现。
@@ -38,27 +43,17 @@ public class UserProfileServiceImpl implements UserProfileService {
     private final ProfileCompletionCalculator profileCompletionCalculator;
     private final ProfileJsonSupport profileJsonSupport;
     private final ProfileStatusResolver profileStatusResolver;
+    private final ProfileViewConverter profileViewConverter;
     private final UserCacheInvalidationService userCacheInvalidationService;
     private final SlowCallLogger slowCallLogger;
 
-    /**
-     * 构造用户资料业务服务。
-     *
-     * @param userManager                  用户主表 Manager
-     * @param userProfileManager           用户资料 Manager
-     * @param profileFieldValidator        资料字段校验器
-     * @param profileCompletionCalculator  资料完整度计算器
-     * @param profileJsonSupport           资料 JSON 支持
-     * @param profileStatusResolver        资料状态解析器
-     * @param userCacheInvalidationService 缓存失效服务
-     * @param slowCallLogger               慢调用日志记录器
-     */
     public UserProfileServiceImpl(UserManager userManager,
                                     UserProfileManager userProfileManager,
                                     ProfileFieldValidator profileFieldValidator,
                                     ProfileCompletionCalculator profileCompletionCalculator,
                                     ProfileJsonSupport profileJsonSupport,
                                     ProfileStatusResolver profileStatusResolver,
+                                    ProfileViewConverter profileViewConverter,
                                     UserCacheInvalidationService userCacheInvalidationService,
                                     SlowCallLogger slowCallLogger) {
         this.userManager = userManager;
@@ -67,44 +62,27 @@ public class UserProfileServiceImpl implements UserProfileService {
         this.profileCompletionCalculator = profileCompletionCalculator;
         this.profileJsonSupport = profileJsonSupport;
         this.profileStatusResolver = profileStatusResolver;
+        this.profileViewConverter = profileViewConverter;
         this.userCacheInvalidationService = userCacheInvalidationService;
         this.slowCallLogger = slowCallLogger;
     }
 
-    /**
-     * 查询本人资料详情。
-     *
-     * @param userId 用户业务主键
-     * @return 用户资料详情 VO
-     * @throws UserBizException 当用户或资料不存在时
-     */
     @Override
     public UserProfileDetailVO getSelfProfile(Long userId) {
-        // 1. 参数校验：userId 不能为空
         if (userId == null || userId <= 0) {
             throw new UserBizException(UserErrorCode.USER_REQUEST_INVALID, "用户 ID 非法");
         }
-        // 2. 查询用户主表
         UserEntity userEntity = userManager.findByUserId(userId);
         if (userEntity == null) {
             throw new UserBizException(UserErrorCode.USER_NOT_FOUND);
         }
-        // 3. 查询用户资料
         UserProfileEntity profileEntity = userProfileManager.findByUserId(userId);
         if (profileEntity == null) {
             throw new UserBizException(UserErrorCode.PROFILE_NOT_FOUND);
         }
-        // 4. 组装返回 VO，不包含敏感字段
         return buildProfileDetailVO(userEntity, profileEntity);
     }
 
-    /**
-     * 更新本人基础资料，并计算完整度与 profile_status。
-     *
-     * @param command 更新资料命令
-     * @return 更新后的用户资料详情 VO
-     * @throws UserBizException 当用户不存在、账号状态非法或字段校验失败时
-     */
     @Override
     @Transactional(rollbackFor = Exception.class)
     public UserProfileDetailVO updateProfile(UpdateProfileCommand command) {
@@ -113,42 +91,17 @@ public class UserProfileServiceImpl implements UserProfileService {
         String errorCode = null;
         Long userId = command == null ? null : command.getUserId();
         try {
-            // 1. 参数校验与字段规范化
             profileFieldValidator.validateAndNormalize(command);
             userId = command.getUserId();
 
-            // 2. 查询用户主表并校验账号状态
-            UserEntity userEntity = userManager.findByUserId(command.getUserId());
-            if (userEntity == null) {
-                throw new UserBizException(UserErrorCode.USER_NOT_FOUND);
-            }
-            validateAccountStatusForUpdate(userEntity.getAccountStatus());
+            UserEntity userEntity = loadActiveUserForUpdate(userId);
+            UserProfileEntity profileEntity = loadProfile(userId);
 
-            // 3. 查询资料记录
-            UserProfileEntity profileEntity = userProfileManager.findByUserId(command.getUserId());
-            if (profileEntity == null) {
-                throw new UserBizException(UserErrorCode.PROFILE_NOT_FOUND);
-            }
-
-            // 4. 计算 profile_score / profile_completed / profile_status
-            ProfileCompletionCalculator.CompletionResult completionResult = profileCompletionCalculator.calculate(command);
-
-            // 5. 更新 user_profiles，保留 avatar_key 不变
-            applyProfileUpdates(profileEntity, command, completionResult);
-            userProfileManager.updateProfile(profileEntity);
-
-            // 6. 更新 users.profile_status，保留已有 avatar_key 对应的状态
-            String profileStatus = profileStatusResolver.resolve(
-                    completionResult.getProfileCompleted(),
-                    profileEntity.getAvatarKey());
-            userManager.updateProfileStatus(command.getUserId(), profileStatus);
-            userEntity.setProfileStatus(profileStatus);
-
-            // 7. 删除资料相关 Redis 缓存，失败不回滚主事务
-            userCacheInvalidationService.evictProfileCache(command.getUserId());
+            applyProfileUpdates(profileEntity, command);
+            finalizeProfileWrite(userEntity, profileEntity);
 
             log.info("用户资料更新成功, userId={}, profileScore={}, profileStatus={}",
-                    command.getUserId(), completionResult.getProfileScore(), profileStatus);
+                    userId, profileEntity.getProfileScore(), userEntity.getProfileStatus());
             return buildProfileDetailVO(userEntity, profileEntity);
         } catch (UserBizException ex) {
             success = false;
@@ -156,6 +109,146 @@ public class UserProfileServiceImpl implements UserProfileService {
             throw ex;
         } finally {
             slowCallLogger.logIfSlow("updateProfile", startNano, userId, success, errorCode);
+        }
+    }
+
+    /**
+     * UpsertOnboarding：首次登录后补齐关键资料，返回 Swagger UserProfileVO 视图。
+     */
+    @Override
+    @Transactional(rollbackFor = Exception.class)
+    public UserProfileViewVO upsertOnboarding(UpsertOnboardingCommand command) {
+        long startNano = System.nanoTime();
+        boolean success = true;
+        String errorCode = null;
+        Long userId = command == null ? null : command.getUserId();
+        try {
+            profileFieldValidator.validateAndNormalizeOnboarding(command);
+            userId = command.getUserId();
+
+            UserEntity userEntity = loadActiveUserForUpdate(userId);
+            UserProfileEntity profileEntity = loadProfile(userId);
+
+            applyOnboardingUpdates(profileEntity, command);
+            finalizeProfileWrite(userEntity, profileEntity);
+
+            log.info("Onboarding 资料补齐成功, userId={}, profileScore={}, pending={}",
+                    userId, profileEntity.getProfileScore(),
+                    profileViewConverter.toView(userEntity, profileEntity).isPending());
+            return profileViewConverter.toView(userEntity, profileEntity);
+        } catch (UserBizException ex) {
+            success = false;
+            errorCode = ex.getErrorCode().getCode();
+            throw ex;
+        } finally {
+            slowCallLogger.logIfSlow("upsertOnboarding", startNano, userId, success, errorCode);
+        }
+    }
+
+    @Override
+    public UserProfileViewVO getUserProfileView(Long userId) {
+        if (userId == null || userId <= 0) {
+            throw new UserBizException(UserErrorCode.USER_REQUEST_INVALID, "用户 ID 非法");
+        }
+        UserEntity userEntity = userManager.findByUserId(userId);
+        if (userEntity == null) {
+            throw new UserBizException(UserErrorCode.USER_NOT_FOUND);
+        }
+        UserProfileEntity profileEntity = userProfileManager.findByUserId(userId);
+        if (profileEntity == null) {
+            throw new UserBizException(UserErrorCode.PROFILE_NOT_FOUND);
+        }
+        return profileViewConverter.toView(userEntity, profileEntity);
+    }
+
+    private UserEntity loadActiveUserForUpdate(long userId) {
+        UserEntity userEntity = userManager.findByUserId(userId);
+        if (userEntity == null) {
+            throw new UserBizException(UserErrorCode.USER_NOT_FOUND);
+        }
+        validateAccountStatusForUpdate(userEntity.getAccountStatus());
+        return userEntity;
+    }
+
+    private UserProfileEntity loadProfile(long userId) {
+        UserProfileEntity profileEntity = userProfileManager.findByUserId(userId);
+        if (profileEntity == null) {
+            throw new UserBizException(UserErrorCode.PROFILE_NOT_FOUND);
+        }
+        return profileEntity;
+    }
+
+    private void finalizeProfileWrite(UserEntity userEntity, UserProfileEntity profileEntity) {
+        // profile_score / profile_completed 重新计算
+        ProfileCompletionCalculator.CompletionResult completionResult =
+                profileCompletionCalculator.calculateFromEntity(profileEntity);
+        profileEntity.setProfileScore(completionResult.getProfileScore());
+        profileEntity.setProfileCompleted(completionResult.getProfileCompleted());
+        userProfileManager.updateProfile(profileEntity);
+
+        String profileStatus = profileStatusResolver.resolve(
+                completionResult.getProfileCompleted(), profileEntity.getAvatarKey());
+        userManager.updateProfileStatus(userEntity.getUserId(), profileStatus);
+        userEntity.setProfileStatus(profileStatus);
+
+        // 删除资料相关 Redis 缓存，失败不回滚主事务
+        userCacheInvalidationService.evictProfileCache(userEntity.getUserId());
+    }
+
+    /**
+     * Onboarding 字段写入：birthday 优先落 birth_date，仅无 birthday 时落 age。
+     */
+    private void applyOnboardingUpdates(UserProfileEntity profileEntity, UpsertOnboardingCommand command) {
+        profileEntity.setNickname(command.getNickname());
+        profileEntity.setGender(command.getGender());
+        LocalDate birthDate = profileFieldValidator.parseOnboardingBirthday(command);
+        if (birthDate != null) {
+            profileEntity.setBirthDate(birthDate);
+            profileEntity.setAge(null);
+        } else if (command.getAge() != null) {
+            profileEntity.setAge(command.getAge());
+        }
+        profileEntity.setHeight(command.getHeight());
+        profileEntity.setBio(command.getBio());
+        profileEntity.setOccupation(command.getOccupation());
+        profileEntity.setEducation(command.getEducation());
+        profileEntity.setLocation(command.getLocation());
+        if (StringUtils.hasText(command.getDefaultAvatarObjectKey())) {
+            profileEntity.setAvatarKey(command.getDefaultAvatarObjectKey());
+        }
+        if (profileEntity.getRegulationStatus() == null) {
+            profileEntity.setRegulationStatus(0);
+        }
+    }
+
+    private void applyProfileUpdates(UserProfileEntity profileEntity, UpdateProfileCommand command) {
+        profileEntity.setNickname(command.getNickname());
+        // Swagger 日常更新不传 gender / birthday 时保留原值
+        if (command.getGender() != null) {
+            profileEntity.setGender(command.getGender());
+        }
+        if (command.getBirthDate() != null) {
+            profileEntity.setBirthDate(command.getBirthDate());
+        }
+        profileEntity.setCountryCode(command.getCountryCode());
+        profileEntity.setCityCode(command.getCityCode());
+        profileEntity.setLanguageCodes(profileJsonSupport.toJsonArray(command.getLanguageCodes()));
+        profileEntity.setBio(command.getBio());
+        profileEntity.setInterests(profileJsonSupport.toJsonArray(command.getInterests()));
+        if (command.isAgePresent()) {
+            profileEntity.setAge(command.getAge());
+        }
+        if (command.isHeightPresent()) {
+            profileEntity.setHeight(command.getHeight());
+        }
+        if (command.getOccupation() != null) {
+            profileEntity.setOccupation(command.getOccupation());
+        }
+        if (command.getEducation() != null) {
+            profileEntity.setEducation(command.getEducation());
+        }
+        if (command.getLocation() != null) {
+            profileEntity.setLocation(command.getLocation());
         }
     }
 
@@ -178,21 +271,6 @@ public class UserProfileServiceImpl implements UserProfileService {
             case DELETED -> throw new UserBizException(UserErrorCode.USER_DELETED);
             default -> throw new UserBizException(UserErrorCode.USER_REQUEST_INVALID, "账号状态非法");
         }
-    }
-
-    private void applyProfileUpdates(UserProfileEntity profileEntity,
-                                     UpdateProfileCommand command,
-                                     ProfileCompletionCalculator.CompletionResult completionResult) {
-        profileEntity.setNickname(command.getNickname());
-        profileEntity.setGender(command.getGender());
-        profileEntity.setBirthDate(command.getBirthDate());
-        profileEntity.setCountryCode(command.getCountryCode());
-        profileEntity.setCityCode(command.getCityCode());
-        profileEntity.setLanguageCodes(profileJsonSupport.toJsonArray(command.getLanguageCodes()));
-        profileEntity.setBio(command.getBio());
-        profileEntity.setInterests(profileJsonSupport.toJsonArray(command.getInterests()));
-        profileEntity.setProfileScore(completionResult.getProfileScore());
-        profileEntity.setProfileCompleted(completionResult.getProfileCompleted());
     }
 
     private UserProfileDetailVO buildProfileDetailVO(UserEntity userEntity, UserProfileEntity profileEntity) {

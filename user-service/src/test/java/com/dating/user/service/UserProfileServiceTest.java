@@ -11,10 +11,15 @@ import com.dating.user.exception.UserErrorCode;
 import com.dating.user.manager.UserManager;
 import com.dating.user.manager.UserProfileManager;
 import com.dating.user.service.impl.UserProfileServiceImpl;
+import com.dating.user.service.support.AvatarViewConverter;
+import com.dating.user.service.support.ProfileAgeResolver;
+import com.dating.user.service.support.ProfileBirthdayParser;
 import com.dating.user.service.support.ProfileCompletionCalculator;
 import com.dating.user.service.support.ProfileFieldValidator;
 import com.dating.user.service.support.ProfileJsonSupport;
 import com.dating.user.service.support.ProfileStatusResolver;
+import com.dating.user.service.support.ProfileViewConverter;
+import com.dating.user.service.support.LoginPendingCalculator;
 import com.dating.user.service.support.SlowCallLogger;
 import com.dating.user.vo.UserProfileDetailVO;
 import org.junit.jupiter.api.BeforeEach;
@@ -69,6 +74,8 @@ class UserProfileServiceTest {
 
     private ProfileStatusResolver profileStatusResolver;
 
+    private ProfileViewConverter profileViewConverter;
+
     private UserProfileService userProfileService;
 
     /**
@@ -76,10 +83,13 @@ class UserProfileServiceTest {
      */
     @BeforeEach
     void setUp() {
-        profileFieldValidator = new ProfileFieldValidator();
-        profileCompletionCalculator = new ProfileCompletionCalculator();
         profileJsonSupport = new ProfileJsonSupport();
+        profileFieldValidator = new ProfileFieldValidator(new ProfileBirthdayParser());
+        profileCompletionCalculator = new ProfileCompletionCalculator(profileJsonSupport);
         profileStatusResolver = new ProfileStatusResolver();
+        profileViewConverter = new ProfileViewConverter(
+                profileJsonSupport, new ProfileBirthdayParser(), new ProfileAgeResolver(new ProfileBirthdayParser()),
+                new LoginPendingCalculator(), new AvatarViewConverter());
         userProfileService = new UserProfileServiceImpl(
                 userManager,
                 userProfileManager,
@@ -87,6 +97,7 @@ class UserProfileServiceTest {
                 profileCompletionCalculator,
                 profileJsonSupport,
                 profileStatusResolver,
+                profileViewConverter,
                 userCacheInvalidationService,
                 SlowCallLogger.forTest()
         );
@@ -140,7 +151,7 @@ class UserProfileServiceTest {
         UserProfileDetailVO result = userProfileService.updateProfile(buildPartialUpdateCommand());
 
         assertEquals("Alice", result.getNickname());
-        assertEquals(20, result.getProfileScore());
+        assertEquals(15, result.getProfileScore());
         assertEquals(0, result.getProfileCompleted());
     }
 
@@ -249,7 +260,7 @@ class UserProfileServiceTest {
         command.setBirthDate(LocalDate.now().plusDays(1));
 
         UserBizException exception = assertThrows(UserBizException.class, () -> userProfileService.updateProfile(command));
-        assertEquals(UserErrorCode.PROFILE_UPDATE_INVALID, exception.getErrorCode());
+        assertEquals(UserErrorCode.INVALID_BIRTHDAY, exception.getErrorCode());
     }
 
     /**
@@ -335,6 +346,7 @@ class UserProfileServiceTest {
                 profileCompletionCalculator,
                 profileJsonSupport,
                 profileStatusResolver,
+                profileViewConverter,
                 new UserCacheInvalidationService(cacheSafeExecutor),
                 SlowCallLogger.forTest()
         );
