@@ -1,0 +1,42 @@
+spring:
+  application:
+    name: match-service-postgres-test
+  cloud:
+    bootstrap:
+      enabled: false
+    nacos:
+      discovery:
+        enabled: false
+      config:
+        enabled: false
+  flyway:
+    enabled: true
+    schemas: match_center
+    table: flyway_history_match
+    baseline-on-migrate: true
+  autoconfigure:
+    exclude:
+      - org.springframework.boot.autoconfigure.data.redis.RedisAutoConfiguration
+      - com.alibaba.cloud.nacos.discovery.NacosDiscoveryAutoConfiguration
+      - com.alibaba.cloud.nacos.NacosConfigAutoConfiguration
+      - com.alibaba.cloud.nacos.endpoint.NacosDiscoveryEndpointAutoConfiguration
+
+grpc:
+  server:
+    port: -1
+
+mybatis-plus:
+  mapper-locations: classpath:mapper/*.xml
+  global-config:
+    db-config:
+      logic-delete-field: deleted
+      logic-delete-value: 1
+      logic-not-delete-value: 0
+
+minio:
+  endpoint: http://127.0.0.1:9000
+  access-key: test-access-key
+  secret-key: test-secret-key
+  bucket: dating-yanshuqi
+  region: us-east-1
+  path-style-access: true

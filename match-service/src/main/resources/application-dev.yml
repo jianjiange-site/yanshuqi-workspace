@@ -66,6 +66,23 @@ management:
     redis:
       enabled: true
 
+grpc:
+  server:
+    port: ${MATCH_GRPC_PORT:9092}
+
 logging:
   level:
     root: INFO
+
+mybatis-plus:
+  mapper-locations: classpath:mapper/*.xml
+  global-config:
+    db-config:
+      logic-delete-field: deleted
+      logic-delete-value: 1
+      logic-not-delete-value: 0
+
+app:
+  match:
+    dh-delayed-match-min-ms: 15000
+    dh-delayed-match-max-ms: 120000

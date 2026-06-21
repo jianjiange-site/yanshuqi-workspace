@@ -1,0 +1,37 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
+        "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.dating.match.mapper.ProfileVisitMapper">
+
+    <insert id="upsertVisit">
+        INSERT INTO match_center.profile_visit (
+            biz_id, from_user_id, target_user_id,
+            visit_count, first_visited_at, last_visited_at,
+            created_at, updated_at, deleted
+        ) VALUES (
+            #{bizId}, #{fromUserId}, #{targetUserId},
+            1, #{visitedAt}, #{visitedAt},
+            #{visitedAt}, #{visitedAt}, 0
+        )
+        ON CONFLICT (from_user_id, target_user_id)
+        DO UPDATE SET
+            visit_count = match_center.profile_visit.visit_count + 1,
+            last_visited_at = EXCLUDED.last_visited_at,
+            updated_at = EXCLUDED.updated_at
+    </insert>
+
+    <select id="listVisitors" resultType="com.dating.match.entity.ProfileVisitEntity">
+        SELECT id, biz_id, from_user_id, target_user_id, visit_count,
+               first_visited_at, last_visited_at, created_at, updated_at, deleted
+        FROM match_center.profile_visit
+        WHERE target_user_id = #{targetUserId}
+          AND deleted = 0
+        <if test="cursorLastVisitedAt != null and cursorBizId != null">
+            AND (last_visited_at &lt; #{cursorLastVisitedAt}
+                 OR (last_visited_at = #{cursorLastVisitedAt} AND biz_id &lt; #{cursorBizId}))
+        </if>
+        ORDER BY last_visited_at DESC, biz_id DESC
+        LIMIT #{pageSize}
+    </select>
+
+</mapper>
