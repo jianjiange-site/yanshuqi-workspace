@@ -5,13 +5,18 @@ spring:
     nacos:
       discovery:
         enabled: false
+        server-addr: 127.0.0.1:8848
       config:
         enabled: false
+        server-addr: 127.0.0.1:8848
   autoconfigure:
     exclude:
       - org.springframework.boot.autoconfigure.jdbc.DataSourceAutoConfiguration
       - org.springframework.boot.autoconfigure.data.redis.RedisAutoConfiguration
       - org.springframework.boot.autoconfigure.flyway.FlywayAutoConfiguration
+      - com.alibaba.cloud.nacos.discovery.NacosDiscoveryAutoConfiguration
+      - com.alibaba.cloud.nacos.NacosConfigAutoConfiguration
+      - com.alibaba.cloud.nacos.endpoint.NacosDiscoveryEndpointAutoConfiguration
 
 minio:
   endpoint: http://127.0.0.1:9000
@@ -20,3 +25,9 @@ minio:
   bucket: dating-yanshuqi
   region: us-east-1
   path-style-access: true
+
+springdoc:
+  api-docs:
+    enabled: false
+  swagger-ui:
+    enabled: false
