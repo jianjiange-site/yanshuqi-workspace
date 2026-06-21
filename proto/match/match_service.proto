@@ -1,0 +1,155 @@
+syntax = "proto3";
+
+package com.dating.match.v1;
+
+option java_multiple_files = true;
+option java_package = "com.dating.match.grpc.proto";
+option java_outer_classname = "MatchServiceProto";
+
+// Match 推荐、划卡、匹配、配额、访问 gRPC 服务。
+service MatchService {
+  // 拉取当日 feed 下一批推荐卡片。
+  rpc GetTodayFeed(GetTodayFeedReq) returns (GetTodayFeedResp);
+  // 划卡 LEFT / RIGHT。
+  rpc Swipe(SwipeReq) returns (SwipeResp);
+  // SuperHi：订阅赠送或扣金币后立即匹配。
+  rpc SuperHi(SuperHiReq) returns (SuperHiResp);
+  // 查询当日配额与使用情况。
+  rpc GetQuota(GetQuotaReq) returns (GetQuotaResp);
+  // 我的匹配列表（分页）。
+  rpc ListMatches(ListMatchesReq) returns (ListMatchesResp);
+  // 记录主页访问（UPSERT 累加 visit_count）。
+  rpc RecordVisit(RecordVisitReq) returns (RecordVisitResp);
+  // 查询访问过我主页的用户列表。
+  rpc ListVisits(ListVisitsReq) returns (ListVisitsResp);
+}
+
+// 拉取 feed 请求。
+message GetTodayFeedReq {
+  int64 caller_user_id = 1;
+  int32 count = 2;
+}
+
+// 拉取 feed 响应。
+message GetTodayFeedResp {
+  repeated MatchCard cards = 1;
+  bool exhausted = 2;
+}
+
+// 推荐卡片展示信息。
+message MatchCard {
+  int64 target_user_id = 1;
+  int32 target_user_type = 2; // 1=BH, 2=DH
+  string nickname = 3;
+  int32 age = 4;
+  repeated string photo_keys = 5;
+  string bio = 6;
+  double distance_km = 7;
+  string state_code = 8;
+  string city = 9;
+}
+
+// 划卡方向。
+enum SwipeDirection {
+  SWIPE_DIRECTION_UNSPECIFIED = 0;
+  LEFT = 1;
+  RIGHT = 2;
+}
+
+// 划卡请求。
+message SwipeReq {
+  int64 caller_user_id = 1;
+  int64 target_user_id = 2;
+  SwipeDirection direction = 3;
+}
+
+// 划卡响应；match_id 为 0 表示未产生匹配。
+message SwipeResp {
+  int64 match_id = 1;
+}
+
+// SuperHi 请求。
+message SuperHiReq {
+  int64 caller_user_id = 1;
+  int64 target_user_id = 2;
+  string client_request_id = 3;
+}
+
+// SuperHi 响应。
+message SuperHiResp {
+  int64 match_id = 1;
+  int32 coins_used = 2;
+}
+
+// 配额查询请求。
+message GetQuotaReq {
+  int64 caller_user_id = 1;
+}
+
+// 配额查询响应。
+message GetQuotaResp {
+  string tier = 1;
+  int32 daily_right_swipe_limit = 2;
+  int32 daily_right_swipe_used = 3;
+  int32 daily_card_limit = 4;
+  int32 daily_card_used = 5;
+  int32 daily_super_hi_limit = 6;
+  int32 daily_super_hi_used = 7;
+  int32 super_hi_coin_price = 8;
+}
+
+// 匹配列表请求。
+message ListMatchesReq {
+  int64 caller_user_id = 1;
+  int32 page_size = 2;
+  string page_token = 3;
+}
+
+// 匹配列表响应。
+message ListMatchesResp {
+  repeated MatchInfo matches = 1;
+  string next_page_token = 2;
+}
+
+// 单条匹配信息。
+message MatchInfo {
+  int64 match_id = 1;
+  int64 partner_user_id = 2;
+  string partner_nickname = 3;
+  repeated string partner_photo_keys = 4;
+  int64 matched_at_ms = 5;
+  string source = 6;
+}
+
+// 记录访问请求。
+message RecordVisitReq {
+  int64 caller_user_id = 1;
+  int64 target_user_id = 2;
+}
+
+// 记录访问响应。
+message RecordVisitResp {
+  bool success = 1;
+}
+
+// 访问列表请求。
+message ListVisitsReq {
+  int64 caller_user_id = 1;
+  int32 page_size = 2;
+  string page_token = 3;
+}
+
+// 访问列表响应。
+message ListVisitsResp {
+  repeated VisitInfo visits = 1;
+  string next_page_token = 2;
+}
+
+// 单条访问记录。
+message VisitInfo {
+  int64 visit_id = 1;
+  int64 from_user_id = 2;
+  int32 visit_count = 3;
+  int64 first_visited_at_ms = 4;
+  int64 last_visited_at_ms = 5;
+}

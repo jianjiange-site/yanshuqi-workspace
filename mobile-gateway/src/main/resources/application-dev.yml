@@ -67,3 +67,9 @@ management:
 logging:
   level:
     root: INFO
+
+grpc:
+  client:
+    match-service:
+      address: static://${MATCH_GRPC_HOST:127.0.0.1}:${MATCH_GRPC_PORT:9092}
+      negotiationType: plaintext
