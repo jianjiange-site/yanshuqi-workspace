@@ -1,0 +1,20 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
+        "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.dating.match.mapper.MatchMapper">
+
+    <select id="listByUserId" resultType="com.dating.match.entity.MatchEntity">
+        SELECT id, biz_id, user_id_low, user_id_high, matched_at, source,
+               created_at, updated_at, deleted
+        FROM match_center."match"
+        WHERE deleted = 0
+          AND (user_id_low = #{userId} OR user_id_high = #{userId})
+        <if test="cursorMatchedAt != null and cursorBizId != null">
+            AND (matched_at &lt; #{cursorMatchedAt}
+                 OR (matched_at = #{cursorMatchedAt} AND biz_id &lt; #{cursorBizId}))
+        </if>
+        ORDER BY matched_at DESC, biz_id DESC
+        LIMIT #{pageSize}
+    </select>
+
+</mapper>

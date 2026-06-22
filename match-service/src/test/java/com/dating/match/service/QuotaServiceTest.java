@@ -1,5 +1,6 @@
 package com.dating.match.service;
 
+import com.dating.match.config.MatchProperties;
 import com.dating.match.client.MockPaymentClient;
 import com.dating.match.client.MockSubscriptionClient;
 import com.dating.match.exception.MatchBizException;
@@ -26,7 +27,7 @@ class QuotaServiceTest {
         quotaRepository = new InMemoryQuotaHashRepository();
         subscriptionClient = new MockSubscriptionClient();
         paymentClient = new MockPaymentClient();
-        quotaService = new QuotaService(quotaRepository, subscriptionClient, paymentClient);
+        quotaService = new QuotaService(quotaRepository, subscriptionClient, paymentClient, new MatchProperties());
         subscriptionClient.setTier(USER_ID, SubscriptionTier.FREE);
     }
 

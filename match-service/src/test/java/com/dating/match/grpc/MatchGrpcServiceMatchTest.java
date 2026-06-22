@@ -7,6 +7,10 @@ import com.dating.match.grpc.proto.SuperHiResp;
 import com.dating.match.grpc.proto.SwipeDirection;
 import com.dating.match.grpc.proto.SwipeReq;
 import com.dating.match.grpc.proto.SwipeResp;
+import com.dating.match.service.FeedService;
+import com.dating.match.service.MatchQueryService;
+import com.dating.match.service.ProfileVisitQueryService;
+import com.dating.match.service.ProfileVisitService;
 import com.dating.match.service.QuotaService;
 import com.dating.match.service.SwipeService;
 import io.grpc.stub.StreamObserver;
@@ -27,16 +31,30 @@ import static org.mockito.Mockito.when;
 class MatchGrpcServiceMatchTest {
 
   @Mock
+  private FeedService feedService;
+
+  @Mock
   private SwipeService swipeService;
 
   @Mock
   private QuotaService quotaService;
 
+  @Mock
+  private MatchQueryService matchQueryService;
+
+  @Mock
+  private ProfileVisitService profileVisitService;
+
+  @Mock
+  private ProfileVisitQueryService profileVisitQueryService;
+
   private MatchGrpcService matchGrpcService;
 
   @BeforeEach
   void setUp() {
-    matchGrpcService = new MatchGrpcService(swipeService, quotaService);
+    matchGrpcService = new MatchGrpcService(
+        feedService, swipeService, quotaService,
+        matchQueryService, profileVisitService, profileVisitQueryService);
   }
 
   @Test

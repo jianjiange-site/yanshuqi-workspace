@@ -1,5 +1,6 @@
 package com.dating.match.service;
 
+import com.dating.match.config.MatchProperties;
 import com.dating.match.client.MockPaymentClient;
 import com.dating.match.client.MockSubscriptionClient;
 import com.dating.match.client.MockTargetUserTypeResolver;
@@ -49,7 +50,7 @@ class SuperHiIdempotencyTest {
     void setUp() {
         MockSubscriptionClient subscriptionClient = new MockSubscriptionClient();
         subscriptionClient.setTier(CALLER, SubscriptionTier.FREE);
-        quotaService = new QuotaService(new InMemoryQuotaHashRepository(), subscriptionClient, new MockPaymentClient());
+        quotaService = new QuotaService(new InMemoryQuotaHashRepository(), subscriptionClient, new MockPaymentClient(), new MatchProperties());
         idempotencyStore = new InMemorySuperHiIdempotencyStore();
         swipeService = new SwipeService(
                 new FakeSwipeLockExecutor(),

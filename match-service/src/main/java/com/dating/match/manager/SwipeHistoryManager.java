@@ -9,8 +9,12 @@ import org.springframework.dao.DuplicateKeyException;
 import org.springframework.context.annotation.Profile;
 import org.springframework.stereotype.Component;
 
+import java.time.Instant;
+import java.time.LocalDate;
 import java.time.OffsetDateTime;
 import java.time.ZoneOffset;
+import java.util.Collections;
+import java.util.List;
 import java.util.Optional;
 
 /**
@@ -83,5 +87,41 @@ public class SwipeHistoryManager {
             return findByUserIdAndTargetUserId(userId, targetUserId)
                     .orElseThrow(() -> ex);
         }
+    }
+
+    public List<Long> listPositiveTargetIds(Long userId, Instant since, int limit) {
+        if (userId == null || since == null || limit <= 0) {
+            return Collections.emptyList();
+        }
+        return userSwipeHistoryMapper.listPositiveTargetIds(userId, OffsetDateTime.ofInstant(since, ZoneOffset.UTC), limit);
+    }
+
+    public List<Long> listAllSwipedTargetIds(Long userId, int limit) {
+        if (userId == null || limit <= 0) {
+            return Collections.emptyList();
+        }
+        return userSwipeHistoryMapper.listAllSwipedTargetIds(userId, limit);
+    }
+
+    public boolean hasSwipeYesterday(Long userId, LocalDate utcDate) {
+        if (userId == null || utcDate == null) {
+            return false;
+        }
+        OffsetDateTime[] range = dayRange(utcDate);
+        return userSwipeHistoryMapper.countSwipeBetween(userId, range[0], range[1]) > 0;
+    }
+
+    public List<Long> listUsersWithSwipeYesterday(LocalDate utcDate, int limit) {
+        if (utcDate == null || limit <= 0) {
+            return Collections.emptyList();
+        }
+        OffsetDateTime[] range = dayRange(utcDate);
+        return userSwipeHistoryMapper.listUsersWithSwipeBetween(range[0], range[1], limit);
+    }
+
+    private static OffsetDateTime[] dayRange(LocalDate utcDate) {
+        OffsetDateTime start = utcDate.atStartOfDay().atOffset(ZoneOffset.UTC);
+        OffsetDateTime end = utcDate.plusDays(1).atStartOfDay().atOffset(ZoneOffset.UTC);
+        return new OffsetDateTime[]{start, end};
     }
 }

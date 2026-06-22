@@ -9,8 +9,12 @@ import org.springframework.context.annotation.Profile;
 import org.springframework.dao.DuplicateKeyException;
 import org.springframework.stereotype.Component;
 
+import com.dating.match.service.support.PageTokenCodec;
+
 import java.time.OffsetDateTime;
 import java.time.ZoneOffset;
+import java.util.Collections;
+import java.util.List;
 import java.util.Optional;
 
 /**
@@ -71,6 +75,27 @@ public class MatchManager {
      */
     public MatchEntity insertIfAbsent(Long userIdA, Long userIdB, String source) {
         return insertIfAbsentWithResult(userIdA, userIdB, source).getEntity();
+    }
+
+    public List<MatchEntity> listByUserId(Long userId, int pageSize, String pageToken) {
+        if (userId == null || pageSize <= 0) {
+            return Collections.emptyList();
+        }
+        OffsetDateTime cursorTime = null;
+        Long cursorBizId = null;
+        PageTokenCodec.Cursor cursor = PageTokenCodec.decode(pageToken);
+        if (cursor != null) {
+            cursorTime = cursor.time();
+            cursorBizId = cursor.bizId();
+        }
+        return matchMapper.listByUserId(userId, pageSize, cursorTime, cursorBizId);
+    }
+
+    public static long resolvePartnerUserId(MatchEntity match, long callerUserId) {
+        if (match.getUserIdLow() == callerUserId) {
+            return match.getUserIdHigh();
+        }
+        return match.getUserIdLow();
     }
 
     static long[] normalizePair(Long userIdA, Long userIdB) {

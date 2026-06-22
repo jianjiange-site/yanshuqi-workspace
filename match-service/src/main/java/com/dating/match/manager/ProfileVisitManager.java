@@ -6,7 +6,7 @@ import com.dating.match.mapper.ProfileVisitMapper;
 import com.dating.match.service.support.BusinessIdGenerator;
 import org.springframework.context.annotation.Profile;
 import org.springframework.stereotype.Component;
-import org.springframework.util.StringUtils;
+import com.dating.match.service.support.PageTokenCodec;
 
 import java.time.OffsetDateTime;
 import java.time.ZoneOffset;
@@ -43,13 +43,10 @@ public class ProfileVisitManager {
         }
         OffsetDateTime cursorTime = null;
         Long cursorBizId = null;
-        if (StringUtils.hasText(pageToken)) {
-            String[] parts = pageToken.split(":");
-            if (parts.length == 2) {
-                cursorTime = OffsetDateTime.ofInstant(
-                        java.time.Instant.ofEpochMilli(Long.parseLong(parts[0])), ZoneOffset.UTC);
-                cursorBizId = Long.parseLong(parts[1]);
-            }
+        PageTokenCodec.Cursor cursor = PageTokenCodec.decode(pageToken);
+        if (cursor != null) {
+            cursorTime = cursor.time();
+            cursorBizId = cursor.bizId();
         }
         return profileVisitMapper.listVisitors(targetUserId, pageSize, cursorTime, cursorBizId);
     }

@@ -1,5 +1,6 @@
 package com.dating.match.service;
 
+import com.dating.match.config.MatchProperties;
 import com.dating.match.client.MockPaymentClient;
 import com.dating.match.client.MockSubscriptionClient;
 import com.dating.match.client.MockTargetUserTypeResolver;
@@ -55,7 +56,7 @@ class SwipeMatchTriggerTest {
     swipeService = new SwipeService(
         new FakeSwipeLockExecutor(),
         swipeHistoryManager,
-        new QuotaService(new InMemoryQuotaHashRepository(), new MockSubscriptionClient(), new MockPaymentClient()),
+        new QuotaService(new InMemoryQuotaHashRepository(), new MockSubscriptionClient(), new MockPaymentClient(), new MatchProperties()),
         new InMemorySwipedSetRepository(),
         new InMemorySuperHiIdempotencyStore(),
         targetUserTypeResolver,

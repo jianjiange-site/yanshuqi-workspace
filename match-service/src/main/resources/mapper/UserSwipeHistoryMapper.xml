@@ -1,0 +1,44 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
+        "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.dating.match.mapper.UserSwipeHistoryMapper">
+
+    <select id="listPositiveTargetIds" resultType="long">
+        SELECT target_user_id
+        FROM match_center.user_swipe_history
+        WHERE deleted = 0
+          AND user_id = #{userId}
+          AND direction IN (2, 3)
+          AND swiped_at &gt;= #{since}
+        ORDER BY swiped_at DESC
+        LIMIT #{limit}
+    </select>
+
+    <select id="listAllSwipedTargetIds" resultType="long">
+        SELECT target_user_id
+        FROM match_center.user_swipe_history
+        WHERE deleted = 0
+          AND user_id = #{userId}
+        ORDER BY swiped_at DESC
+        LIMIT #{limit}
+    </select>
+
+    <select id="countSwipeBetween" resultType="int">
+        SELECT COUNT(1)
+        FROM match_center.user_swipe_history
+        WHERE deleted = 0
+          AND user_id = #{userId}
+          AND swiped_at &gt;= #{start}
+          AND swiped_at &lt; #{end}
+    </select>
+
+    <select id="listUsersWithSwipeBetween" resultType="long">
+        SELECT DISTINCT user_id
+        FROM match_center.user_swipe_history
+        WHERE deleted = 0
+          AND swiped_at &gt;= #{start}
+          AND swiped_at &lt; #{end}
+        LIMIT #{limit}
+    </select>
+
+</mapper>
