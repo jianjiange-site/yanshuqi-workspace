@@ -128,6 +128,36 @@ MatchService 一键验收：
 bash scripts/verify-match-final.sh
 ```
 
+## PostService 验收
+
+PostService 当前已完成帖子、互动计数、Feed 推荐三条主链路。
+
+Linux/macOS:
+
+```bash
+bash scripts/verify-post-service.sh
+```
+
+Windows PowerShell:
+
+```powershell
+.\scripts\verify-post-service.ps1
+```
+
+## PostService 文档
+
+- [项目地图](docs/post-service/00-项目地图.md)
+- [业务流程](docs/post-service/01-业务流程.md)
+- [技术架构](docs/post-service/02-技术架构.md)
+- [数据模型](docs/post-service/03-数据模型.md)
+- [接口与 gRPC 契约](docs/post-service/04-接口与gRPC契约.md)
+- [核心调用链](docs/post-service/05-调用链.md)
+- [Redis 与 Feed 设计](docs/post-service/06-Redis与Feed设计.md)
+- [幂等与一致性](docs/post-service/07-幂等与一致性.md)
+- [测试与验收](docs/post-service/08-测试与验收.md)
+- [面试复盘](docs/post-service/09-面试复盘.md)
+- [最终验收报告](docs/post-service/10-最终验收报告.md)
+
 ## 红线
 
 - Java 包名使用 `com.dating.<service>`，禁止 `com.chatvibe.*` / `com.dating.yanshuqi.*`
