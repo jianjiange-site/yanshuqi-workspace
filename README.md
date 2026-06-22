@@ -103,6 +103,31 @@ bash scripts/verify-stage-00a.sh
 - 阶段设计：`study-docs/stage/00_STAGE_BASELINE_INFRA_DESIGN.md.md`
 - 阶段计划：`study-docs/03生产级开发阶段计划.md`
 
+## MatchService 开发交付文档
+
+- [docs/match-service/00_MATCH_SERVICE_PROJECT_MAP.md](docs/match-service/00_MATCH_SERVICE_PROJECT_MAP.md) — 项目地图与模块边界
+- [docs/match-service/01_BUSINESS_FLOWS.md](docs/match-service/01_BUSINESS_FLOWS.md) — 业务流程（Feed/Swipe/Match/D1/Visit）
+- [docs/match-service/02_TECH_ARCHITECTURE.md](docs/match-service/02_TECH_ARCHITECTURE.md) — 技术架构与 Mermaid 图
+- [docs/match-service/03_DATA_MODEL.md](docs/match-service/03_DATA_MODEL.md) — PostgreSQL 四表 + Redis Key
+- [docs/match-service/04_API_MAP.md](docs/match-service/04_API_MAP.md) — REST + gRPC 接口地图
+- [docs/match-service/05_CALL_CHAIN.md](docs/match-service/05_CALL_CHAIN.md) — 核心调用链
+- [docs/match-service/06_TECH_DECISIONS.md](docs/match-service/06_TECH_DECISIONS.md) — 技术决策与取舍
+- [docs/match-service/07_PROBLEMS_AND_SOLUTIONS.md](docs/match-service/07_PROBLEMS_AND_SOLUTIONS.md) — 问题与方案
+- [docs/match-service/08_ACCEPTANCE_CHECKLIST.md](docs/match-service/08_ACCEPTANCE_CHECKLIST.md) — 最终验收清单
+- [docs/match-service/09_STAGE_REVIEW.md](docs/match-service/09_STAGE_REVIEW.md) — 分阶段复盘（0–9）
+- [docs/match-service/10_INTERVIEW_SUMMARY.md](docs/match-service/10_INTERVIEW_SUMMARY.md) — 面试复盘材料
+- [docs/match-service/STAGE8_EXTERNAL_INTEGRATION_CHECKLIST.md](docs/match-service/STAGE8_EXTERNAL_INTEGRATION_CHECKLIST.md) — 阶段 8 外部集成清单
+
+MatchService 一键验收：
+
+```powershell
+.\scripts\verify-match-final.ps1
+```
+
+```bash
+bash scripts/verify-match-final.sh
+```
+
 ## 红线
 
 - Java 包名使用 `com.dating.<service>`，禁止 `com.chatvibe.*` / `com.dating.yanshuqi.*`

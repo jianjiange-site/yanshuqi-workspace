@@ -1,0 +1,100 @@
+# MatchService 最终验收清单
+
+## 环境检查
+
+- [ ] JDK 17+（推荐 21）
+- [ ] Maven 3.8+
+- [ ] Redis 可连（单元测试多 mock Redis）
+- [ ] **Docker**（PostgreSQL Testcontainers 集成测试，无 Docker 则 4 项 skip）
+
+## 编译测试
+
+```powershell
+cd match-service; mvn clean test; mvn clean compile
+cd mobile-gateway; mvn clean test; mvn clean compile
+```
+
+- [ ] match-service 测试通过（skip 需记录原因）
+- [ ] mobile-gateway 测试通过
+
+## 一键验收脚本
+
+```powershell
+.\scripts\verify-match-final.ps1
+```
+
+```bash
+bash scripts/verify-match-final.sh
+```
+
+- [ ] 脚本 PASS
+
+## proto 检查
+
+- [ ] `proto/match/match_service.proto` 存在
+- [ ] 7 个 RPC 与 gateway REST 一一对应
+
+## REST 接口检查
+
+| 接口 | 检查点 |
+|------|--------|
+| GET /feed | callerUserId 来自 JWT，不传 userId |
+| POST /swipe | LEFT/RIGHT |
+| POST /super-hi | clientRequestId |
+| GET /quota | 订阅档位 + 剩余 |
+| GET /matches | matchId=biz_id，分页 |
+| POST /visit/{id} | UPSERT |
+| GET /visits | visitId=biz_id |
+
+## gRPC 接口检查
+
+- [ ] GetTodayFeed / Swipe / SuperHi / GetQuota / ListMatches / RecordVisit / ListVisits
+
+## DB 表检查
+
+- [ ] match_center.user_swipe_history
+- [ ] match_center."match"
+- [ ] match_center.match_outbox
+- [ ] match_center.profile_visit
+
+## Redis Key 检查
+
+- [ ] 全部 `yanshuqi:` 前缀（见 `RedisKeyConstants`）
+
+## 功能回归
+
+- [ ] Feed LPOP + D0 冷启动
+- [ ] LEFT/RIGHT Swipe + 配额
+- [ ] SuperHi 幂等
+- [ ] BH 互划 match
+- [ ] DH 延迟 match
+- [ ] Outbox 重试
+- [ ] D1 日更（单测 + 调度器单测）
+- [ ] ListMatches / RecordVisit / ListVisits
+
+## 外部服务 mock/grpc 边界
+
+- [ ] 默认 mock 模式全链路可测
+- [ ] grpc 模式占位行为明确（UNIMPLEMENTED）
+- [ ] match-service 无非法 import 其他服务业务包
+- [ ] gateway 无 QuotaService / SwipeHistoryManager / MatchCreationService / D1Generator
+
+## 文档检查
+
+- [ ] `docs/match-service/00`–`10` 齐全
+- [ ] 中文、对应真实代码
+- [ ] 未夸大「全生产联调」
+
+## Secret 扫描
+
+- [ ] 源码无 `password=` / `token=` / `secret=` / `ak=` / `sk=` 硬编码泄露
+
+## Docker/Testcontainers 补验
+
+> **PostgreSQL Testcontainers 集成测试需 Docker 环境补跑**
+
+无 Docker 时 `MatchManagerIntegrationTest` 等 skip，需在具备 Docker 环境补跑：
+
+```powershell
+cd match-service; mvn test -Dtest=MatchManagerIntegrationTest
+```

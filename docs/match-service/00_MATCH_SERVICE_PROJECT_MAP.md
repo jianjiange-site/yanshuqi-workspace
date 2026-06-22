@@ -1,0 +1,92 @@
+# MatchService 项目地图
+
+## 模块背景
+
+MatchService（`match-service`）是 Dating App 的**匹配域微服务**，负责推荐 Feed、划卡、配额、匹配关系、主页访问等核心链路。学员标识 `yanshuqi`，schema 为 `match_center`，Redis key 统一 `yanshuqi:match:` 前缀。
+
+## 业务目标
+
+1. 向 App 提供当日推荐卡片（Feed）。
+2. 处理 LEFT / RIGHT 划卡与 SuperHi。
+3. 按订阅档位控制每日配额。
+4. 创建并查询匹配关系（BH 互划、SuperHi 即时、DH 延迟）。
+5. 记录与查询主页访问。
+6. 通过 Outbox 异步触发 IM 副作用（当前 mock）。
+
+## 上下游服务
+
+| 方向 | 服务 | 关系 |
+|------|------|------|
+| 上游（调用方） | mobile-gateway | REST 入口，解析 JWT 得 callerUserId，gRPC 转发 |
+| 下游（被调） | user-service | 候选资料 / user_type（grpc 占位，默认 mock） |
+| 下游 | payment-service | 订阅档位、扣金币（grpc 占位，默认 mock） |
+| 下游 | im-service | match 后 IM 副作用（grpc 占位，默认 mock） |
+| 存储 | PostgreSQL | match_center 四张业务表 |
+| 存储 | Redis | Feed LIST、配额 Hash、swiped SET、锁、SuperHi 幂等 |
+
+## 服务边界
+
+**MatchService 负责：**
+
+- Feed 队列消费与 D0/D1 推荐生成
+- Swipe / SuperHi / Quota
+- match / profile_visit / swipe_history / outbox 单表 CRUD
+- gRPC MatchService 七个 RPC
+
+**MatchService 不负责：**
+
+- JWT 签发与用户鉴权（gateway）
+- 用户资料 CRUD（user-service）
+- 真实 IM 会话（im-service）
+- 真实支付（payment-service）
+- 推荐算法 MMR / epsilon-greedy（本版本未实现）
+
+## 已实现能力（阶段 0–8）
+
+| 能力 | 状态 |
+|------|------|
+| proto + gateway REST 契约 | ✅ |
+| 4 张 PG 业务表 | ✅ |
+| Quota + Swipe + SuperHi | ✅ |
+| BH 互划 / SuperHi 即时 / DH 延迟 Match | ✅ |
+| Outbox 重试 | ✅ |
+| Feed LPOP + D0 冷启动 | ✅ |
+| D1 日更推荐队列 | ✅ |
+| ListMatches / RecordVisit / ListVisits | ✅ |
+| 外部依赖防腐层 mock/grpc 切换 | ✅ |
+
+## mock / grpc 边界
+
+默认 **mock 模式**（`app.match.external.*-client-mode=mock`），可完整回归 Swipe/Feed/D1/Outbox。
+
+grpc 模式已预留 Bean，但：
+
+- user：`batchGetProfiles` 可走 `BatchGetRecommendProfiles`；`list*Candidates` 未实现
+- payment / im：proto 不存在，占位 client 明确失败
+
+详见 [STAGE8_EXTERNAL_INTEGRATION_CHECKLIST.md](STAGE8_EXTERNAL_INTEGRATION_CHECKLIST.md)。
+
+## 学习价值
+
+- Redis LIST + SET 组合做 Feed 与二次过滤
+- Redisson 锁 + DB 唯一约束双层并发控制
+- low/high 规范化匹配对
+- Outbox 最终一致性
+- 防腐层隔离外部依赖
+- D0/D1 分离的推荐队列策略
+
+## 核心包结构
+
+```text
+com.dating.match
+├── client/          # 防腐层接口 + mock + grpc 占位
+├── config/          # MatchProperties、TaskScheduler
+├── constant/        # RedisKey、SwipeDirection、UserType
+├── entity/          # 四张表实体
+├── grpc/            # MatchGrpcService、异常映射
+├── manager/         # 单表 Manager（无跨表 JOIN）
+├── recommend/       # D0/D1 推荐链路
+├── repository/      # Redis 抽象实现
+├── scheduler/       # D1、Outbox 定时任务
+└── service/         # 业务 Service
+```
