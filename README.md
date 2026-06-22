@@ -105,18 +105,18 @@ bash scripts/verify-stage-00a.sh
 
 ## MatchService 开发交付文档
 
-- [docs/match-service/00_MATCH_SERVICE_PROJECT_MAP.md](docs/match-service/00_MATCH_SERVICE_PROJECT_MAP.md) — 项目地图与模块边界
-- [docs/match-service/01_BUSINESS_FLOWS.md](docs/match-service/01_BUSINESS_FLOWS.md) — 业务流程（Feed/Swipe/Match/D1/Visit）
-- [docs/match-service/02_TECH_ARCHITECTURE.md](docs/match-service/02_TECH_ARCHITECTURE.md) — 技术架构与 Mermaid 图
-- [docs/match-service/03_DATA_MODEL.md](docs/match-service/03_DATA_MODEL.md) — PostgreSQL 四表 + Redis Key
-- [docs/match-service/04_API_MAP.md](docs/match-service/04_API_MAP.md) — REST + gRPC 接口地图
-- [docs/match-service/05_CALL_CHAIN.md](docs/match-service/05_CALL_CHAIN.md) — 核心调用链
-- [docs/match-service/06_TECH_DECISIONS.md](docs/match-service/06_TECH_DECISIONS.md) — 技术决策与取舍
-- [docs/match-service/07_PROBLEMS_AND_SOLUTIONS.md](docs/match-service/07_PROBLEMS_AND_SOLUTIONS.md) — 问题与方案
-- [docs/match-service/08_ACCEPTANCE_CHECKLIST.md](docs/match-service/08_ACCEPTANCE_CHECKLIST.md) — 最终验收清单
-- [docs/match-service/09_STAGE_REVIEW.md](docs/match-service/09_STAGE_REVIEW.md) — 分阶段复盘（0–9）
-- [docs/match-service/10_INTERVIEW_SUMMARY.md](docs/match-service/10_INTERVIEW_SUMMARY.md) — 面试复盘材料
-- [docs/match-service/STAGE8_EXTERNAL_INTEGRATION_CHECKLIST.md](docs/match-service/STAGE8_EXTERNAL_INTEGRATION_CHECKLIST.md) — 阶段 8 外部集成清单
+- [docs/match-service/00-项目地图.md](docs/match-service/00-项目地图.md) — 项目地图与模块边界
+- [docs/match-service/01-业务流程.md](docs/match-service/01-业务流程.md) — 业务流程（Feed/Swipe/Match/D1/Visit）
+- [docs/match-service/02-技术架构.md](docs/match-service/02-技术架构.md) — 技术架构与 Mermaid 图
+- [docs/match-service/03-数据模型.md](docs/match-service/03-数据模型.md) — PostgreSQL 四表 + Redis Key
+- [docs/match-service/04-接口地图.md](docs/match-service/04-接口地图.md) — REST + gRPC 接口地图
+- [docs/match-service/05-调用链.md](docs/match-service/05-调用链.md) — 核心调用链
+- [docs/match-service/06-技术决策.md](docs/match-service/06-技术决策.md) — 技术决策与取舍
+- [docs/match-service/07-问题与方案.md](docs/match-service/07-问题与方案.md) — 问题与方案
+- [docs/match-service/08-验收清单.md](docs/match-service/08-验收清单.md) — 最终验收清单
+- [docs/match-service/09-阶段复盘.md](docs/match-service/09-阶段复盘.md) — 分阶段复盘（0–9）
+- [docs/match-service/10-面试复盘.md](docs/match-service/10-面试复盘.md) — 面试复盘材料
+- [docs/match-service/11-阶段8外部集成清单.md](docs/match-service/11-阶段8外部集成清单.md) — 阶段 8 外部集成清单
 
 MatchService 一键验收：
 

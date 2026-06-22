@@ -77,17 +77,17 @@ fi
 
 echo "--- 9. docs/match-service/ files complete ---"
 REQUIRED_DOCS=(
-  "00_MATCH_SERVICE_PROJECT_MAP.md"
-  "01_BUSINESS_FLOWS.md"
-  "02_TECH_ARCHITECTURE.md"
-  "03_DATA_MODEL.md"
-  "04_API_MAP.md"
-  "05_CALL_CHAIN.md"
-  "06_TECH_DECISIONS.md"
-  "07_PROBLEMS_AND_SOLUTIONS.md"
-  "08_ACCEPTANCE_CHECKLIST.md"
-  "09_STAGE_REVIEW.md"
-  "10_INTERVIEW_SUMMARY.md"
+  "00-项目地图.md"
+  "01-业务流程.md"
+  "02-技术架构.md"
+  "03-数据模型.md"
+  "04-接口地图.md"
+  "05-调用链.md"
+  "06-技术决策.md"
+  "07-问题与方案.md"
+  "08-验收清单.md"
+  "09-阶段复盘.md"
+  "10-面试复盘.md"
 )
 MISSING=0
 for doc in "${REQUIRED_DOCS[@]}"; do
