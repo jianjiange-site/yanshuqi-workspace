@@ -35,3 +35,8 @@ app:
   match:
     dh-delayed-match-min-ms: 10
     dh-delayed-match-max-ms: 50
+    super-hi-coin-price: 100
+    external:
+      user-client-mode: mock
+      payment-client-mode: mock
+      im-client-mode: mock

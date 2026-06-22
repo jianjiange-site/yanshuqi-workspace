@@ -15,6 +15,7 @@ public enum MatchErrorCode {
     CONCURRENT_SWIPE("CONCURRENT_SWIPE", "划卡并发冲突"),
     MATCH_ALREADY_EXISTS("MATCH_ALREADY_EXISTS", "匹配关系已存在"),
     OUTBOX_RETRY_FAILED("OUTBOX_RETRY_FAILED", "Outbox 重试失败"),
+    EXTERNAL_RPC_NOT_IMPLEMENTED("EXTERNAL_RPC_NOT_IMPLEMENTED", "外部服务 RPC 尚未实现"),
     INTERNAL_ERROR("INTERNAL_ERROR", "系统内部错误");
 
     private final String code;

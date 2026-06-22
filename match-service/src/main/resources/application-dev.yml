@@ -69,6 +69,16 @@ management:
 grpc:
   server:
     port: ${MATCH_GRPC_PORT:9092}
+  client:
+    user-service:
+      address: static://127.0.0.1:9091
+      negotiation-type: plaintext
+    payment-service:
+      address: static://127.0.0.1:9095
+      negotiation-type: plaintext
+    im-service:
+      address: static://127.0.0.1:9093
+      negotiation-type: plaintext
 
 logging:
   level:
@@ -86,3 +96,26 @@ app:
   match:
     dh-delayed-match-min-ms: 15000
     dh-delayed-match-max-ms: 120000
+    feed:
+      queue-size: 240
+      cold-start-bh-ratio: 0.20
+      queue-ttl-days: 7
+    d1:
+      bh-ratio: 0.40
+      preference-enabled: true
+      preference-offset: 0.20
+      min-preference-samples: 10
+      preference-window-days: 30
+    score:
+      mutual-like-bonus: 0.20
+      new-bh-bonus: 0.20
+      new-bh-window-days: 3
+    super-hi-coin-price: 100
+    external:
+      user-client-mode: mock
+      payment-client-mode: mock
+      im-client-mode: mock
+    grpc:
+      user-service-target: static://127.0.0.1:9091
+      payment-service-target: static://127.0.0.1:9095
+      im-service-target: static://127.0.0.1:9093

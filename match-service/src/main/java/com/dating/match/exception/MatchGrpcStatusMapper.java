@@ -24,6 +24,7 @@ public final class MatchGrpcStatusMapper {
             case CONCURRENT_SWIPE, DUPLICATE_SWIPE -> Status.ABORTED;
             case MATCH_ALREADY_EXISTS -> Status.ALREADY_EXISTS;
             case OUTBOX_RETRY_FAILED -> Status.UNAVAILABLE;
+            case EXTERNAL_RPC_NOT_IMPLEMENTED -> Status.UNIMPLEMENTED;
             case INTERNAL_ERROR -> Status.INTERNAL;
         };
     }

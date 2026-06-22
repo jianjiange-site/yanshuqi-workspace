@@ -1,6 +1,7 @@
 package com.dating.match.client;
 
 import com.dating.match.constant.UserTypeConstant;
+import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.stereotype.Component;
 
 import java.util.concurrent.ConcurrentHashMap;
@@ -10,6 +11,7 @@ import java.util.concurrent.ConcurrentHashMap;
  * 后续替换为 user-service gRPC。
  */
 @Component
+@ConditionalOnProperty(prefix = "app.match.external", name = "user-client-mode", havingValue = "mock", matchIfMissing = true)
 public class MockTargetUserTypeResolver implements TargetUserTypeResolver {
 
     private final ConcurrentHashMap<Long, Integer> overrides = new ConcurrentHashMap<>();

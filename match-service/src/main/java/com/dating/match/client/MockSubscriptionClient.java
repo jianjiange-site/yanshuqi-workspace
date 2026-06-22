@@ -1,6 +1,7 @@
 package com.dating.match.client;
 
 import com.dating.match.subscription.SubscriptionTier;
+import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.stereotype.Component;
 
 import java.util.concurrent.ConcurrentHashMap;
@@ -9,6 +10,7 @@ import java.util.concurrent.ConcurrentHashMap;
  * Mock 订阅客户端，默认 FREE；测试可通过 {@link #setTier(long, SubscriptionTier)} 切换档位。
  */
 @Component
+@ConditionalOnProperty(prefix = "app.match.external", name = "payment-client-mode", havingValue = "mock", matchIfMissing = true)
 public class MockSubscriptionClient implements SubscriptionClient {
 
     private final ConcurrentHashMap<Long, SubscriptionTier> tierOverrides = new ConcurrentHashMap<>();
