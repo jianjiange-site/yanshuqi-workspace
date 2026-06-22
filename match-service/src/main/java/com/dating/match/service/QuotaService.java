@@ -1,8 +1,8 @@
 package com.dating.match.service;
 
-import com.dating.match.client.MockPaymentClient;
 import com.dating.match.client.PaymentClient;
 import com.dating.match.client.SubscriptionClient;
+import com.dating.match.config.MatchProperties;
 import com.dating.match.constant.RedisKeyConstants;
 import com.dating.match.dto.QuotaUsage;
 import com.dating.match.exception.MatchBizException;
@@ -32,13 +32,16 @@ public class QuotaService {
     private final QuotaHashRepository quotaHashRepository;
     private final SubscriptionClient subscriptionClient;
     private final PaymentClient paymentClient;
+    private final MatchProperties matchProperties;
 
     public QuotaService(QuotaHashRepository quotaHashRepository,
                         SubscriptionClient subscriptionClient,
-                        PaymentClient paymentClient) {
+                        PaymentClient paymentClient,
+                        MatchProperties matchProperties) {
         this.quotaHashRepository = quotaHashRepository;
         this.subscriptionClient = subscriptionClient;
         this.paymentClient = paymentClient;
+        this.matchProperties = matchProperties;
     }
 
     public QuotaUsage getUsage(long userId) {
@@ -48,6 +51,16 @@ public class QuotaService {
         usage.setRightSwipeUsed((int) quotaHashRepository.get(key, FIELD_RIGHT_SWIPE));
         usage.setSuperHiUsed((int) quotaHashRepository.get(key, FIELD_SUPER_HI));
         return usage;
+    }
+
+    public boolean isCardsExhausted(long userId) {
+        QuotaLimit limit = subscriptionClient.getTier(userId).quotaLimit();
+        return getUsage(userId).getCardsUsed() >= limit.getDailyCardLimit();
+    }
+
+    public int getRemainingCards(long userId) {
+        QuotaLimit limit = subscriptionClient.getTier(userId).quotaLimit();
+        return Math.max(0, limit.getDailyCardLimit() - getUsage(userId).getCardsUsed());
     }
 
     public GetQuotaResp buildQuotaResponse(long userId) {
@@ -62,7 +75,7 @@ public class QuotaService {
                 .setDailyCardUsed(usage.getCardsUsed())
                 .setDailySuperHiLimit(limit.getDailySuperHiLimit())
                 .setDailySuperHiUsed(usage.getSuperHiUsed())
-                .setSuperHiCoinPrice(MockPaymentClient.SUPER_HI_COIN_PRICE)
+                .setSuperHiCoinPrice(matchProperties.getSuperHiCoinPrice())
                 .build();
     }
 
@@ -118,13 +131,14 @@ public class QuotaService {
             }
             increment(key, FIELD_SUPER_HI, -1);
         }
-        boolean paid = paymentClient.consumeCoins(userId, MockPaymentClient.SUPER_HI_COIN_PRICE, idempotencyKey);
+        int coinPrice = matchProperties.getSuperHiCoinPrice();
+        boolean paid = paymentClient.consumeCoins(userId, coinPrice, idempotencyKey);
         if (!paid) {
             increment(key, FIELD_RIGHT_SWIPE, -1);
             increment(key, FIELD_CARDS, -1);
             throw new MatchBizException(MatchErrorCode.INSUFFICIENT_COINS);
         }
-        return MockPaymentClient.SUPER_HI_COIN_PRICE;
+        return coinPrice;
     }
 
     private long increment(String key, String field, long delta) {
