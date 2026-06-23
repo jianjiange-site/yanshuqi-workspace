@@ -158,6 +158,32 @@ Windows PowerShell:
 - [面试复盘](docs/post-service/09-面试复盘.md)
 - [最终验收报告](docs/post-service/10-最终验收报告.md)
 
+## MobileGateway 开发交付文档
+
+- [docs/mobile-gateway/00-项目地图.md](docs/mobile-gateway/00-项目地图.md) — 定位、模块状态、依赖清单
+- [docs/mobile-gateway/01-业务流程.md](docs/mobile-gateway/01-业务流程.md) — 登录/资料/Match/Post/Payment·IM 边界流程
+- [docs/mobile-gateway/02-技术架构.md](docs/mobile-gateway/02-技术架构.md) — BFF 分层与 Mermaid 架构图
+- [docs/mobile-gateway/03-鉴权与安全设计.md](docs/mobile-gateway/03-鉴权与安全设计.md) — JWT、refresh、黑名单、callback 无 JWT
+- [docs/mobile-gateway/04-接口地图.md](docs/mobile-gateway/04-接口地图.md) — 全量 REST 状态矩阵（含 Payment/IM 契约占位）
+- [docs/mobile-gateway/05-REST到gRPC调用链.md](docs/mobile-gateway/05-REST到gRPC调用链.md) — Auth/Match/Post metadata 差异
+- [docs/mobile-gateway/06-数据模型与RedisKey.md](docs/mobile-gateway/06-数据模型与RedisKey.md) — auth 表与 Redis Key
+- [docs/mobile-gateway/07-跨服务适配说明.md](docs/mobile-gateway/07-跨服务适配说明.md) — user/match/post/payment/im 适配状态
+- [docs/mobile-gateway/08-异常码与边界处理.md](docs/mobile-gateway/08-异常码与边界处理.md) — 105xx–109xx 与 gRPC 映射
+- [docs/mobile-gateway/09-配置启动与部署说明.md](docs/mobile-gateway/09-配置启动与部署说明.md) — JDK 21、profile、gRPC 端口
+- [docs/mobile-gateway/10-测试与最终验收清单.md](docs/mobile-gateway/10-测试与最终验收清单.md) — mvn test、curl 建议
+- [docs/mobile-gateway/11-阶段复盘.md](docs/mobile-gateway/11-阶段复盘.md) — GW-0～GW-6 复盘
+- [docs/mobile-gateway/12-面试复盘.md](docs/mobile-gateway/12-面试复盘.md) — 面试口述材料
+
+MobileGateway 一键验收：
+
+```powershell
+.\scripts\verify-gateway-final.ps1
+```
+
+```bash
+bash scripts/verify-gateway-final.sh
+```
+
 ## 红线
 
 - Java 包名使用 `com.dating.<service>`，禁止 `com.chatvibe.*` / `com.dating.yanshuqi.*`
