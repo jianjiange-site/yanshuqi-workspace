@@ -73,3 +73,24 @@ grpc:
     match-service:
       address: static://${MATCH_GRPC_HOST:127.0.0.1}:${MATCH_GRPC_PORT:9092}
       negotiationType: plaintext
+    user-service:
+      address: static://${USER_GRPC_HOST:127.0.0.1}:${USER_GRPC_PORT:9091}
+      negotiationType: plaintext
+    post-service:
+      address: static://${POST_GRPC_HOST:127.0.0.1}:${POST_GRPC_PORT:9094}
+      negotiationType: plaintext
+
+gateway:
+  grpc:
+    deadline-seconds: 5
+  jwt:
+    issuer: dating-mobile-gateway
+    access-token-ttl-seconds: 900
+    refresh-token-ttl-seconds: 604800
+    private-key-base64: ${GATEWAY_JWT_PRIVATE_KEY_BASE64:}
+    public-key-base64: ${GATEWAY_JWT_PUBLIC_KEY_BASE64:}
+  sms:
+    enabled: false
+    mock-code: "123456"
+    code-ttl-seconds: 300
+    cooldown-seconds: 60
