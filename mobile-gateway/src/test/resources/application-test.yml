@@ -31,3 +31,14 @@ springdoc:
     enabled: false
   swagger-ui:
     enabled: false
+
+gateway:
+  jwt:
+    issuer: dating-mobile-gateway-test
+    access-token-ttl-seconds: 900
+    refresh-token-ttl-seconds: 604800
+  sms:
+    enabled: false
+    mock-code: "123456"
+    code-ttl-seconds: 300
+    cooldown-seconds: 60
