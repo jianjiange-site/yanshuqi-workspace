@@ -33,6 +33,11 @@ public final class MatchProtoAdapter {
 
     public static MatchFeedVO toMatchFeedVO(GetTodayFeedResp resp) {
         MatchFeedVO vo = new MatchFeedVO();
+        if (resp == null) {
+            vo.setExhausted(true);
+            vo.setCards(new ArrayList<>());
+            return vo;
+        }
         vo.setExhausted(resp.getExhausted());
         List<MatchCardVO> cards = new ArrayList<>();
         for (MatchCard card : resp.getCardsList()) {
@@ -86,6 +91,10 @@ public final class MatchProtoAdapter {
 
     public static MatchListVO toMatchListVO(ListMatchesResp resp) {
         MatchListVO vo = new MatchListVO();
+        if (resp == null) {
+            vo.setMatches(new ArrayList<>());
+            return vo;
+        }
         vo.setNextPageToken(resp.getNextPageToken());
         List<MatchInfoVO> matches = new ArrayList<>();
         for (MatchInfo info : resp.getMatchesList()) {
@@ -108,6 +117,10 @@ public final class MatchProtoAdapter {
 
     public static VisitListVO toVisitListVO(ListVisitsResp resp) {
         VisitListVO vo = new VisitListVO();
+        if (resp == null) {
+            vo.setVisits(new ArrayList<>());
+            return vo;
+        }
         vo.setNextPageToken(resp.getNextPageToken());
         List<VisitInfoVO> visits = new ArrayList<>();
         for (VisitInfo info : resp.getVisitsList()) {
