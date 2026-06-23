@@ -22,6 +22,10 @@ public class Result<T> {
         return new Result<>(0, "OK", data);
     }
 
+    public static Result<Void> okVoid() {
+        return new Result<>(0, "OK", null);
+    }
+
     public int getCode() {
         return code;
     }
